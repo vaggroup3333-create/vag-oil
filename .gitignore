@@ -70,3 +70,12 @@ backups/
 uploads/
 .temp-*
 *Login.txt
+
+# Standalone installation and private transfer archives
+/.selfhost-data/
+/.selfhost-import-*/
+*.zip
+*.tar.gz
+__pycache__/
+/.openai/*
+!/.openai/hosting.json

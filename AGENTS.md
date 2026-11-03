@@ -1,6 +1,7 @@
 # VAG Oil source repository
 
-- The owner requested on 2026-11-03 that every VAG Oil update also be saved to this private GitHub repository.
+- The owner requested on 2026-11-03 that every VAG Oil update also be saved to this GitHub repository, and authorized making the source public for a friend's independent installation.
+- Production data is provided only as a separate private transfer archive. Never publish it or put it in release assets.
 - Preserve remote history and inspect the current branch before publishing. Do not force-push over unrelated work.
 - Publish application source and build dependencies metadata only. Never include credentials, SSH keys, environment secrets, production databases, customer records, uploaded product photos or production backups.
 - This repository and deployment concern VAG Oil only. Do not modify VAG SERVICE PRO repositories, services, data or shared infrastructure.
