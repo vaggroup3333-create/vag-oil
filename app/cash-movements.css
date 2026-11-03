@@ -1,0 +1,34 @@
+/* Compact cash movement report; colors distinguish information by purpose. */
+.cashMovementHint{font-size:11px;font-weight:500;line-height:1.45;color:#64748b;margin:10px 0 8px}
+.cashMovementTable .tablewrap{border-radius:9px;border:1px solid #dce4ed}
+.cashMovementTable .tablewrap table{min-width:980px;width:100%}
+.cashMovementTable .tablewrap th{background:#eef3fa;color:#425572;font-size:12px;font-weight:650;padding:10px}
+.cashMovementTable .sorthead{font-size:12px;font-weight:650;color:#425572;line-height:1.35;white-space:normal}
+.cashMovementTable .tablewrap td{padding:7px 10px;vertical-align:top;font-size:12.5px;line-height:1.4;font-weight:500;color:#475569;white-space:normal;font-variant-numeric:tabular-nums}
+.cashMovementTable .tablewrap tbody tr:nth-child(even){background:#f7f9fc}
+.cashMovementTable .tablewrap tbody tr:hover{background:#edf4ff}
+.cashPaymentDate{color:#64748b;font-size:12px;white-space:nowrap;font-weight:500}
+.cashPaymentParty{display:block;min-width:120px;max-width:180px;color:#2458a1;font-weight:600;overflow-wrap:anywhere}
+.cashPaymentAccount{display:inline-block;max-width:145px;color:#986016;font-size:12px;font-weight:600;line-height:1.4}
+.cashPaymentProducts{display:flex;flex-direction:column;gap:2px;min-width:220px;max-width:350px}
+.cashPaymentProduct{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.cashPaymentProduct>span{font-size:13px;line-height:1.4;font-weight:600;color:#303e59;overflow-wrap:anywhere;min-width:0}
+.cashPaymentProduct>b{display:inline-block;flex:none;white-space:nowrap;padding:1px 5px;border-radius:5px;background:#eee9fb;color:#6846a1;font-size:11px;line-height:1.5;font-weight:650}
+.cashPaymentDocument{align-self:flex-start;display:inline-flex;align-items:center;gap:3px;min-height:24px;padding:0;border:0;border-radius:4px;background:transparent;color:#3975b7;font-size:11px;line-height:1.3;font-weight:550;white-space:normal;text-align:left}
+.cashPaymentDocument svg{width:12px;height:12px;flex:none}
+.cashPaymentDocument:hover{color:#1c4e8a;background:#e5effc}
+.cashPaymentDocument:focus-visible{outline:2px solid #3975b7;outline-offset:2px}
+.cashPaymentIncoming,.cashPaymentOutgoing{display:inline-block;font-weight:700;white-space:nowrap}
+.cashPaymentIncoming{color:#07845f}.cashPaymentOutgoing{color:#c04444}
+.cashPaymentNote{display:block;min-width:80px;max-width:200px;font-size:11px;font-weight:450;line-height:1.4;color:#69758b;overflow-wrap:anywhere}
+.cashPaymentNote small{font-size:10px;color:#a05748;font-weight:500}
+.cashPaymentNoProducts{color:#94a3b8}
+.cashMovementTable .tablecontrols{margin:8px 0}.cashMovementTable .tablecontrols button,.cashMovementTable .tablecontrols summary{font-weight:550;font-size:12px}
+@media(max-width:850px){
+ .cashMovementTable .tablewrap table{min-width:940px}
+ .cashMovementTable .tablewrap td{font-size:12px;padding:7px 8px}
+ .cashPaymentProducts{min-width:210px;max-width:290px}
+ .cashPaymentProduct>span{font-size:12px}
+}
+@media(pointer:coarse){.cashPaymentDocument{min-height:40px;padding:2px 4px}}
+@media print{.cashMovementTable .tablewrap{overflow:visible}.cashMovementTable .tablewrap table{min-width:0}.cashPaymentProducts{min-width:0}.cashPaymentDocument{color:#222;background:none}}

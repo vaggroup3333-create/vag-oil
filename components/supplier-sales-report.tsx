@@ -1,0 +1,38 @@
+'use client';
+import {useMemo,useState} from 'react';
+import type {ComponentType,ReactNode} from 'react';
+import {Download,ChevronRight,Receipt,Package,Info} from 'lucide-react';
+import type {State} from '../lib/ledger';
+import {supplierSales,supplierRowsSummary,UNKNOWN_SUPPLIER} from '../lib/supplier-sales';
+import type {SupplierSaleRow} from '../lib/supplier-sales';
+import {csvCell} from '../lib/csv-export';
+const n=(v:number)=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:3}).format(v);
+const money=(v:number)=>new Intl.NumberFormat('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2}).format(v)+' с';
+const quantities=(values:Record<string,number>)=>Object.entries(values).filter(([,v])=>v!==0).map(([unit,v])=>n(v)+' '+unit).join(' · ')||'0';
+const date=(v:string)=>new Date(v).toLocaleString('ru-RU',{timeZone:'Asia/Dushanbe',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+const normal=(v:string)=>v.toLocaleLowerCase('ru').replace(/ё/g,'е');
+const payment=(r:SupplierSaleRow)=>!r.receiptId?'Нет исходного чека':r.receiptDebt>0?(r.receiptPaid>0?'Частично оплачен':'Не оплачен')+' · долг чека '+money(r.receiptDebt):'Чек закрыт, долга нет';
+type TableProps={heads:string[];rows:{id:string;cells:ReactNode[]}[];empty?:string};
+type Props={s:State;from:string;to:string;query:string;supplierId:string;onSupplier:(id:string)=>void;onOpenReceipt:(id:string)=>void;Table:ComponentType<TableProps>};
+export function SupplierSalesReport({s,from,to,query,supplierId,onSupplier,onOpenReceipt,Table}:Props){
+ const groups=useMemo(()=>supplierSales(s,from,to),[s,from,to]);
+ const [onlySold,setOnlySold]=useState(false),[expanded,setExpanded]=useState('');
+ const words=normal(query).trim().split(/\s+/).filter(Boolean);
+ const visible=groups.filter(g=>!supplierId||g.id===supplierId).map(g=>({...g,rows:g.rows.filter(r=>words.every(w=>normal([g.name,r.name,r.article,r.number,r.receiptNumber,...r.sources].join(' ')).includes(w)))})).filter(g=>(!onlySold||g.rows.length>0)&&(!words.length||g.rows.length>0||words.every(w=>normal(g.name).includes(w))));
+ const rows=visible.flatMap(g=>g.rows),total=supplierRowsSummary(rows);
+ const detail=visible.find(g=>g.id===(expanded||supplierId));
+ const products=detail?[...new Set(detail.rows.map(r=>r.productId))].map(id=>{const rows=detail.rows.filter(r=>r.productId===id);return {id,name:rows[0].name,article:rows[0].article,rows,summary:supplierRowsSummary(rows)}}):[];
+ function exportDetails(){
+  const data=[['Поставщик','Дата','Документ','Исходный чек','Товар','Артикул','Продано','Возвращено','Единица','Себестоимость, с','Продажи за вычетом возвратов, с','Оплата всего чека сейчас','Источник','Примечание'],...rows.map(r=>[r.supplierName,date(r.date),(r.type==='sale'?'Чек №':'Возврат №')+r.number,r.receiptNumber,r.name,r.article,r.sold,r.returned,r.unit,r.cost,r.revenue,payment(r),r.sources.join(' | '),r.reason])];
+  const blob=new Blob(['\uFEFF'+data.map(row=>row.map(csvCell).join(';')).join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download='VAG_Oil_Продажи_по_поставщикам_'+(from||'начало')+'_'+(to||'сегодня')+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ }
+ return <div className="supplierSales">
+  <div className="supplierSalesFilters"><label>Поставщик<select value={supplierId} onChange={e=>{onSupplier(e.target.value);setExpanded('')}}><option value="">Все поставщики</option>{groups.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></label><label className="supplierSalesCheck"><input type="checkbox" checked={onlySold} onChange={e=>setOnlySold(e.target.checked)}/> Только с продажами или возвратами</label><button type="button" onClick={exportDetails} disabled={!rows.length}><Download size={17}/> Скачать товары и чеки</button></div>
+  <div className="supplierSalesTotals"><div><small>Продано за вычетом возвратов</small><strong>{quantities(total.net)}</strong><span>{total.products} наименований</span></div><div><small>Себестоимость проданного</small><strong>{money(total.cost)}</strong><span>Учётная стоимость товаров</span></div><div><small>Продажи за вычетом возвратов</small><strong>{money(total.revenue)}</strong><span>Включая продажи клиентам в долг</span></div></div>
+  <p className="supplierSalesHint"><Info size={18}/><span>Выберите поставщика или нажмите «Товары и чеки». Себестоимость помогает планировать оплату, но не показывает, сколько денег уже получено. Оплату смотрите в чеке. Долг поставщику указан на сегодня за всё время.</span></p>
+  <Table heads={['Поставщик','Наименований','Продано','Возвращено','Итого продано','Себестоимость, с','Продажи, с','Долг поставщику сейчас, с','']} rows={visible.map(g=>{const t=supplierRowsSummary(g.rows);return {id:g.id,cells:[<b>{g.name}</b>,t.products,quantities(t.sold),quantities(t.returned),quantities(t.net),money(t.cost),money(t.revenue),g.id.startsWith('@')?'—':money(g.currentDebt),<button type="button" className="mini" aria-expanded={detail?.id===g.id} onClick={()=>{setExpanded(g.id);requestAnimationFrame(()=>document.getElementById('supplier-sales-detail')?.scrollIntoView({block:'start',behavior:'smooth'}))}}>Товары и чеки <ChevronRight size={15}/></button>]}})} empty="Поставщики не найдены"/>
+  {detail&&<section className="supplierSalesDetail" id="supplier-sales-detail"><h3><Package size={21}/> {detail.name}</h3>{detail.id===UNKNOWN_SUPPLIER&&<div className="notice">Эти продажи учтены один раз в отдельной группе. Если у товара несколько источников, программа не относит продажу к поставщику наугад.</div>}{!detail.rows.length?<p className="supplierSalesZero">За выбранный период продаж и возвратов товаров этого поставщика нет.</p>:<><Table heads={['Товар','Артикул','Продано','Возвращено','Итого продано','Себестоимость, с','Продажи, с']} rows={products.map(p=>({id:p.id,cells:[p.name,p.article,quantities(p.summary.sold),quantities(p.summary.returned),quantities(p.summary.net),money(p.summary.cost),money(p.summary.revenue)]}))}/><h4><Receipt size={19}/> Чеки и возвраты</h4><p className="supplierSalesSmall">Нажмите номер, чтобы открыть документ. Оплата относится ко всему чеку, а не к отдельному товару. Возвраты вычитаются в периоде возврата.</p><Table heads={['Дата','Документ','Товар','Количество','Себестоимость, с','Продажи, с','Оплата чека сейчас','Откуда товар']} rows={detail.rows.slice().sort((a,b)=>Date.parse(b.date)-Date.parse(a.date)).map(r=>({id:r.id,cells:[date(r.date),<button type="button" className="link" onClick={()=>onOpenReceipt(r.entryId)}>{r.type==='sale'?'Чек №':'Возврат №'}{r.number}</button>,<>{r.name}<small>{r.article}</small></>,n(r.qty)+' '+r.unit,money(r.cost),money(r.revenue),<span className={r.receiptDebt>0?'supplierSalesUnpaid':''}>{payment(r)}</span>,<>{r.sources.length?r.sources.join('; '):'Нет подтверждённого прихода'}{r.reason&&<small>{r.reason}</small>}{r.pending&&<small>Себестоимость предварительная</small>}</>]}))}/></>}</section>}
+  <details className="supplierSalesMethod"><summary>Как определяется поставщик</summary><p>Товары сопоставляются по карточке товара с проведёнными приходами до продажи и с накладными, закрывшими продажу до прихода. Учитывается выбранный в кассе оплаченный остаток или остаток в долг. Название поставщика берётся из его текущей карточки.</p><p>Если источник единственный, продажа относится к нему. При нескольких возможных поставщиках или остатке без подтверждённого прихода продажа попадает в «Поставщик не определён». Себестоимость берётся из сохранённого чека по принятому в программе средневзвешенному методу. Услуги в этот отчёт не входят.</p></details>
+ </div>;
+}

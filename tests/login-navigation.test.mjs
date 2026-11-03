@@ -1,0 +1,50 @@
+import assert from 'node:assert/strict';
+import {readFile,writeFile,mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import ts from 'typescript';
+const dir=await mkdtemp(join(tmpdir(),'vag-login-navigation-'));
+try{
+ await writeFile(join(dir,'hooks.mjs'),`let values=[],index=0;export const changes=[];export function configure(v=[]){values=v;index=0;changes.length=0}export function useState(initial){const i=index++;return [i in values?values[i]:initial,v=>changes.push([i,v])]}export function useEffect(){}`);
+ await writeFile(join(dir,'icons.mjs'),'export const Droplets=()=>null;export const LockKeyhole=()=>null;');
+ await writeFile(join(dir,'device.mjs'),`export const writes=[];export async function deviceRead(){return null}export async function deviceUpdate(key,update){const value=update(undefined);writes.push([key,value]);return value}`);
+ for(const [name,path] of [['auth-response','lib/auth-response.ts'],['login-gate','components/login-gate.tsx'],['cashier-access','components/cashier-access.tsx']]){
+  let source=await readFile(new URL('../'+path,import.meta.url),'utf8');
+  source=source.replace("import {InstallAppButton} from './install-app';","const InstallAppButton='install-button';");
+  source=source.replace("from 'react'","from './hooks.mjs'").replace("from 'lucide-react'","from './icons.mjs'").replace("from '../lib/auth-response'","from './auth-response.mjs'").replace("from '../lib/cashier-device'","from './device.mjs'");
+  const js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.React,jsxFactory:'__h',jsxFragmentFactory:'__Fragment'}}).outputText;
+  await writeFile(join(dir,name+'.mjs'),`const __h=(type,props,...children)=>({type,props:props||{},children});const __Fragment='fragment';\n`+js);
+ }
+ const hooks=await import(pathToFileURL(join(dir,'hooks.mjs'))),device=await import(pathToFileURL(join(dir,'device.mjs')));
+ const {LoginGate}=await import(pathToFileURL(join(dir,'login-gate.mjs'))),{CashierAccess}=await import(pathToFileURL(join(dir,'cashier-access.mjs')));
+ const nodes=node=>!node||typeof node!=='object'?[]:[node,...(node.children||[]).flat(Infinity).flatMap(nodes)];
+ const links=tree=>nodes(tree).filter(n=>n.type==='a').map(n=>n.props.href);
+ hooks.configure(['director',false,false,false]);
+ let tree=LoginGate({children:'WORKSPACE',preferredRole:'administrator'});
+ assert.ok(links(tree).includes('/vag-oil/cashier'));
+ assert.match(JSON.stringify(tree),/Вход администратора/);
+ assert.equal(nodes(tree).find(n=>n.type==='input'&&n.props.autoComplete==='username').props.value,'');
+ hooks.configure(['cashier',true,false,false]);
+ tree=LoginGate({children:'WORKSPACE',preferredRole:'administrator'});
+ assert.doesNotMatch(JSON.stringify(tree),/WORKSPACE/);
+ const change=nodes(tree).find(n=>n.type==='button'&&n.props.onClick);assert.ok(change);
+ const calls=[];globalThis.fetch=async(url,options)=>{calls.push([url,JSON.parse(options.body)]);return Response.json({authenticated:false})};
+ await change.props.onClick();await new Promise(resolve=>setImmediate(resolve));
+ assert.deepEqual(calls,[['/vag-oil/api/auth',{action:'logout'}]]);
+ assert.ok(hooks.changes.some(([i,value])=>i===1&&value===false));
+ hooks.configure(['administrator',true,false,false]);
+ assert.equal(LoginGate({children:'WORKSPACE',preferredRole:'administrator'}).children[0],'WORKSPACE');
+ hooks.configure([null,false,false,'manager','test-only-password','']);
+ let openedCashier=false;tree=CashierAccess({children:()=>{openedCashier=true;return 'CASHIER'}});
+ assert.ok(links(tree).includes('/vag-oil/administrator'));assert.ok(links(tree).includes('/vag-oil/'));
+ const redirects=[];globalThis.window={location:{replace:path=>redirects.push(path)}};
+ globalThis.fetch=async()=>Response.json({authenticated:true,role:'administrator',login:'manager',workspaceKey:'test-workspace'});
+ await nodes(tree).find(n=>n.type==='form').props.onSubmit({preventDefault(){}});
+ assert.deepEqual(redirects,['/vag-oil/administrator']);assert.equal(openedCashier,false);
+ assert.deepEqual(device.writes,[['offline-grant',undefined]]);
+ assert.ok(!hooks.changes.some(([i,value])=>i===0&&value));
+ const {readAuthResponse}=await import(pathToFileURL(join(dir,'auth-response.mjs')));
+ await assert.rejects(()=>readAuthResponse(new Response('Your worker restarted mid-request.',{status:503})),/перезапускается/);
+ console.log('PASS: explicit administrator entry; cashier session can log out and switch; administrator login on cashier page redirects without caching cash access; restart errors are readable.');
+}finally{await rm(dir,{recursive:true,force:true})}

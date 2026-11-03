@@ -1,0 +1,7 @@
+.packControls{border:1px solid #bed7d2;border-radius:8px;padding:10px;margin:10px 0;min-width:250px;background:#f5faf8;white-space:normal;text-align:left}.packControls legend{font-weight:600;font-size:12px;color:#286365}.packControls label{display:flex;flex-direction:column;gap:5px;font-size:12px;margin-bottom:8px}.packControls select,.packControls input{width:100%;min-width:70px;padding:8px!important;border:1px solid #cbd9d6!important;border-radius:5px;background:white}.packControls .fields{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}.packControls .fields>label{flex:1;min-width:90px}.packControls small{display:block!important;line-height:1.5;margin-top:6px;font-size:11px!important;color:#526c65!important}.cashcart .packControls{max-width:380px}.cashcart input[readonly],.editable input[readonly]{background:#edf2f1;color:#526c65}@media(max-width:850px){.packControls{min-width:0;width:100%}}
+
+.purchasePackagingPanel{padding:16px;margin:16px 0;border:1px solid #bed7d2;border-radius:8px;background:#f5faf8}.purchasePackagingPanel h4{margin:12px 0 4px}.purchasePackagingPanel .packControls{min-width:0;width:100%}
+.purchaseLines .compactPack{min-width:260px;width:100%;max-width:360px;padding:8px;margin:8px 0 0}
+.purchaseLines .compactPack .fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.purchaseLines .compactPack .fields>label{min-width:0;margin:0}
+.purchaseLines .compactPack .fields>label:last-child{grid-column:1/-1}

@@ -1,0 +1,72 @@
+import assert from 'node:assert/strict';
+import {stripTypeScriptTypes} from 'node:module';
+import {readFile,writeFile,mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
+const dir=await mkdtemp(join(tmpdir(),'vag-reports-'));
+let count=0;
+try{
+ for(const name of ['legacy-ledger','packaging','opening-stock','paid-stock','paid-stock-costs','paid-stock-draft','draft-stock','stock-advances','stock-sources','invoice-duplicates','ledger','reporting']){
+  const source=await readFile(new URL('../lib/'+name+'.ts',import.meta.url),'utf8');
+  await writeFile(join(dir,name+'.mjs'),stripTypeScriptTypes(source).replace(/from '\.\/([^']+)'/g,"from './$1.mjs'"));
+ }
+ const L=await import(pathToFileURL(join(dir,'ledger.mjs'))),R=await import(pathToFileURL(join(dir,'reporting.mjs')));
+ function check(name,fn){try{fn();count++;console.log('PASS '+name)}catch(e){console.error('FAIL '+name);throw e}}
+ const now=day=>`2026-10-${String(day).padStart(2,'0')}T09:00:00Z`;
+ const act=(s,a,day=1)=>L.apply(s,a,{now:now(day),role:'director',actor:'test'});
+ function setup(){let s=L.initial(false);s=L.apply(s,{type:'product',name:'Test filter',article:'333',category:'Фильтры',unit:'шт',price:25},{id:'filter'});s=L.apply(s,{type:'party',name:'Test supplier',kind:'supplier'},{id:'supplier'});s=L.apply(s,{type:'party',name:'Test client',kind:'client'},{id:'client'});return s}
+ const buy=(s,qty=10,price=10,paid=0,day=1)=>act(s,{type:'purchase',partyId:'supplier',lines:[{id:'filter',qty,price}],paid,account:'cash'},day);
+ const sell=(s,qty=1,paid=0,day=2)=>act(s,{type:'sale',partyId:'client',lines:[{id:'filter',qty,price:25}],paid,account:'cash'},day);
+ let s=buy(setup());const purchase=s.entries.at(-1).id;
+ s=sell(s,2,20);const sale=s.entries.at(-1).id;
+ s=act(s,{type:'payment',target:sale,amount:30,account:'city'},3);
+ s=act(s,{type:'return',target:sale,lines:[{id:'filter',qty:1}],account:'cash'},4);
+ check('cash, sale on credit, repayment, return, profit',()=>{assert.equal(L.totals(s).revenue,25);assert.equal(L.totals(s).profit,15);assert.equal(L.totals(s).cash,25);assert.equal(L.totals(s).customerDebt,0)});
+ check('current balance matches dashboard',()=>{const b=R.balanceAt(s,'');assert.equal(b.capital,15);assert.equal(b.supplierDebt,100);assert.equal(b.stock,90)});
+ check('historical debt ignores later payment and return',()=>{assert.equal(R.balanceAt(s,'2026-10-02').customerDebt,30);assert.equal(R.balanceAt(s,'2026-10-03').customerDebt,0);assert.equal(R.balanceAt(s,'2026-10-01').stock,100)});
+ check('debt history excludes initial receipt',()=>{const rows=R.debtReceipts(s);assert.equal(rows.length,1);assert.equal(rows[0].amount,30)});
+ check('customer statement includes cash returned',()=>{const st=R.partyStatement(s,'sale','client');assert.equal(st.closing,0);assert.equal(st.rows.filter(r=>r.kind==='refund').length,1);assert.equal(st.rows.find(r=>r.kind==='refund').charge,25)});
+ check('statement opening + charges - settlements = closing',()=>{const st=R.partyStatement(s,'sale','client','2026-10-03','2026-10-04');assert.equal(st.opening,30);assert.equal(st.closing,0);assert.equal(L.round(st.opening+st.charges-st.settled),st.closing)});
+ check('receipt payment breakdown deducts refunds per account',()=>{const b=R.documentPayments(s,s.entries.find(e=>e.id===sale));assert.equal(b.received,50);assert.equal(b.refunded,25);assert.equal(b.net,25);assert.equal(b.accounts.cash,-5);assert.equal(b.accounts.city,30)});
+ check('average check excludes returns from other days',()=>{const t=L.totals(s,'2026-10-04','2026-10-04');assert.equal(t.averageSale,0);const all=L.totals(s);assert.equal(all.averageSale,50);assert.equal(all.revenue,25)});
+ let p=buy(setup(),10,10,100);const pi=p.entries.at(-1).id;
+ p=act(p,{type:'return',target:pi,lines:[{id:'filter',qty:3}],account:'cash'},2);const pr=p.entries.at(-1).id;
+ check('supplier statement accounts for returned money',()=>{const st=R.partyStatement(p,'purchase','supplier');assert.equal(st.closing,0);const b=R.documentPayments(p,p.entries.find(e=>e.id===pi));assert.equal(b.net,70)});
+ p=act(p,{type:'cancel_supplier_return',id:pr,amount:30},3);
+ check('supplier return cancellation has dated stock and refund reversal',()=>{assert.equal(p.products[0].qty,10);assert.equal(R.partyStatement(p,'purchase','supplier').closing,0);assert.equal(R.balanceAt(p,'2026-10-02').stock,70);assert.equal(R.balanceAt(p,'2026-10-03').stock,100);assert.equal(L.totals(p).profit,0)});
+ let d=buy(setup());const di=d.entries.at(-1).id;
+ d=act(d,{type:'payment',target:di,amount:40,account:'cash'},2);const pay=d.payments.at(-1).id;
+ d=act(d,{type:'cancel_supplier_payment',id:pay,amount:40,reason:'Test correction'},3);
+ check('cancelled supplier payment preserves historical debt and cash',()=>{assert.equal(R.balanceAt(d,'2026-10-02').supplierDebt,60);assert.equal(R.balanceAt(d,'2026-10-03').supplierDebt,100);assert.equal(R.partyStatement(d,'purchase','supplier').closing,100);assert.equal(L.balance(d),0)});
+ let own=buy(setup(),3,10);const requestId=crypto.randomUUID();
+ own=act(own,{type:'paid_stock_add',productId:'filter',qty:2,cost:20,requestId},2);const addition=own.entries.at(-1).id;
+ check('paid stock mixed with debt stock preserves cash and debt',()=>{assert.equal(own.products[0].qty,5);assert.equal(own.products[0].cost,14);assert.equal(L.totals(own).supplierDebt,30);assert.equal(L.totals(own).cash,0);assert.equal(L.totals(own).profit,0);assert.equal(R.balanceAt(own,'').capital,40);assert.equal(R.balanceAt(own,'2026-10-01').stock,30)});
+ check('paid stock duplicate request rejected',()=>assert.throws(()=>act(own,{type:'paid_stock_add',productId:'filter',qty:2,cost:20,requestId},2)));
+ own=act(own,{type:'cancel_opening_stock',id:addition,amount:40},3);
+ check('paid stock cancellation retains history and original average',()=>{assert.equal(own.products[0].qty,3);assert.equal(own.products[0].cost,10);assert.equal(R.balanceAt(own,'2026-10-02').capital,40);assert.equal(R.balanceAt(own,'2026-10-03').capital,0)});
+ check('drafts and deleted documents excluded',()=>{const fake=structuredClone(s);fake.entries.push({...fake.entries[0],id:'draft',status:'draft',total:999999});fake.entries.push({...fake.entries[1],id:'deleted',status:'deleted',total:999999});assert.deepEqual(L.totals(fake),L.totals(s));assert.deepEqual(R.productSales(fake.entries,'filter'),R.productSales(s.entries,'filter'))});
+ check('day boundary uses Tajikistan time',()=>{assert.equal(R.localDay('2026-10-01T19:00:00Z'),'2026-10-02');assert.equal(R.localDay('2026-10-01T18:59:59Z'),'2026-10-01')});
+ check('product returns and discounts use posted net amounts',()=>{const t=R.productSales(s.entries,'filter');assert.equal(t.qty,1);assert.equal(t.returned,1);assert.equal(t.revenue,25);assert.equal(t.cost,10);assert.equal(t.profit,15)});
+ check('all report helpers leave input unchanged',()=>{const before=JSON.stringify(s);R.balanceAt(s,'2026-10-01');R.partyStatement(s,'sale','client');R.debtReceipts(s);R.documentPayments(s,s.entries.find(e=>e.id===sale));R.abcxyz(s,s.entries,'2026-10-01','2026-12-31');assert.equal(JSON.stringify(s),before)});
+ check('XYZ includes months without sales and net returns',()=>{const t=R.abcxyz(s,s.entries,'2026-10-01','2026-12-31')[0];assert.equal(t.xyz,'Z');assert.equal(t.qty,1);assert.equal(t.abc,'A')});
+ let finance=buy(setup());finance=act(finance,{type:'cash_in',party:'Owner',total:100,account:'cash'},1);finance=sell(finance,1,25,2);finance=act(finance,{type:'cash_out',party:'Owner',total:5,account:'cash'},3);finance=act(finance,{type:'expense',party:'Rent',total:4,account:'cash'},3);finance=act(finance,{type:'income',party:'Other',total:2,account:'city'},3);finance=act(finance,{type:'transfer',account:'cash',to:'city',total:7},3);finance=act(finance,{type:'writeoff',note:'Test',lines:[{id:'filter',qty:1}]},4);finance=act(finance,{type:'inventory',note:'Test',lines:[{id:'filter',qty:9}]},5);
+ check('owner cash, transfer, writeoff, stocktake and operating profit',()=>{assert.equal(L.totals(finance).profit,13);assert.equal(R.balanceAt(finance,'').capital,108);assert.equal(L.totals(finance).cash,118)});
+ check('supplier unpaid return reduces debt without cash',()=>{let t=buy(setup(),10,10);t=act(t,{type:'return',target:t.entries.at(-1).id,lines:[{id:'filter',qty:2}],account:'cash'},2);assert.equal(L.balance(t),0);assert.equal(R.partyStatement(t,'purchase','supplier').closing,80);assert.equal(L.totals(t).profit,0)});
+ check('customer partly unpaid return splits debt and cash',()=>{let t=sell(buy(setup()),2,40);t=act(t,{type:'return',target:t.entries.at(-1).id,lines:[{id:'filter',qty:1}],account:'cash'},3);assert.equal(t.entries.at(-1).refund,15);assert.equal(L.balance(t),25);assert.equal(R.partyStatement(t,'sale','client').closing,0)});
+ check('same-time later receipt still classified as debt repayment',()=>{let t=sell(buy(setup()),2,20);t=act(t,{type:'payment',target:t.entries.at(-1).id,amount:30,account:'cash'},2);assert.equal(R.debtReceipts(t).length,1);assert.equal(R.debtReceipts(t)[0].amount,30)});
+ check('statement period with no movements preserves opening',()=>{const st=R.partyStatement(d,'purchase','supplier','2026-10-10','2026-10-11');assert.equal(st.opening,100);assert.equal(st.closing,100);assert.equal(st.rows.length,0)});
+ check('missing party gives empty statement',()=>{const st=R.partyStatement(s,'sale','nonexistent');assert.equal(st.closing,0);assert.equal(st.rows.length,0)});
+ check('empty report and period return zero',()=>{const t=setup();assert.equal(R.balanceAt(t,'2020-01-01').capital,0);assert.equal(R.productSales([],t.products[0].id).profit,0);assert.equal(R.abcxyz(t,[],'2026-10-01','2026-10-31')[0].xyz,'—')});
+ check('100 percent discount does not create revenue',()=>{const t=act(buy(setup()),{type:'sale',partyId:'client',lines:[{id:'filter',qty:1,price:25}],discountMode:'percent',discountValue:100,paid:0},2);assert.equal(R.productSales(t.entries,'filter').revenue,0);assert.equal(R.productSales(t.entries,'filter').profit,-10)});
+ check('cent allocation reconciles many discounted lines',()=>{const e={...s.entries.find(e=>e.id===sale),total:1,cost:.01,discount:2,service:0,lines:[{id:'a',qty:1,price:1,cost:1/300},{id:'b',qty:1,price:1,cost:1/300},{id:'c',qty:1,price:1,cost:1/300}]};const t=e.lines.map(l=>R.productSales([e],l.id));assert.equal(L.round(t.reduce((n,r)=>n+r.revenue,0)),1);assert.equal(L.round(t.reduce((n,r)=>n+r.cost,0)),.01);assert.equal(L.round(t.reduce((n,r)=>n+r.profit,0)),.99)});
+ check('product revenue excludes discounted service fee',()=>{const t=act(buy(setup()),{type:'sale',partyId:'client',lines:[{id:'filter',qty:1,price:25}],service:25,discount:10,paid:0},2);assert.equal(R.productSales(t.entries,'filter').revenue,20);assert.equal(L.totals(t).revenue,40)});
+ check('stock movements include paid additions and reversals once',()=>{assert.equal(own.entries.reduce((n,e)=>n+e.lines.reduce((a,l)=>a+R.stockMovement(e,l.qty),0),0),3);assert.equal(R.stockMovement({...own.entries[0],status:'draft'},99),0)});
+ check('returned-only goods have finite profit',()=>{const t=R.productSales(s.entries.filter(e=>e.type==='sale_return'),'filter');assert.equal(t.revenue,-25);assert.equal(t.cost,-10);assert.ok(Number.isFinite(t.profit))});
+ check('freight capitalization and historical balance',()=>{let t=setup();t=act(t,{type:'purchase',partyId:'supplier',lines:[{id:'filter',qty:10,price:10,expense:2}],paid:0,account:'cash',expenseAccount:'city'},1);assert.equal(L.totals(t).stock,120);assert.equal(L.totals(t).profit,0);assert.equal(R.balanceAt(t,'2026-10-01').capital,0);assert.equal(R.balanceAt(t,'2026-09-30').capital,0)});
+ check('historical stock avoids intermediate rounding',()=>{const t=setup();t.products[0].qty=1;t.products[0].cost=.0049;t.products.push({...t.products[0],id:'fraction',cost:.0049});t.entries.push({...s.entries[0],id:'tiny',date:now(2),type:'opening_stock',lines:[{id:'filter',qty:1,price:.0049,cost:.0049}],total:0,cost:0});assert.equal(R.balanceAt(t,'2026-10-01').stock,0)});
+ check('paid stock cannot be cancelled after sale',()=>{let t=act(buy(setup()),{type:'paid_stock_add',productId:'filter',qty:2,cost:10,requestId:crypto.randomUUID()},2);const id=t.entries.at(-1).id;t=act(t,{type:'sale',partyId:'client',lines:[{id:'filter',qty:1,price:25,stockOrigin:'paid'}],paid:25,account:'cash'},3);assert.throws(()=>act(t,{type:'cancel_opening_stock',id,amount:20},4))});
+ check('administrator cannot create paid stock',()=>assert.throws(()=>L.apply(buy(setup()),{type:'paid_stock_add',productId:'filter',qty:1,cost:10,requestId:crypto.randomUUID()},{role:'administrator'})));
+ check('sum of daily profit equals full period',()=>{let sum=0;for(let day=1;day<=5;day++)sum+=L.totals(finance,`2026-10-0${day}`,`2026-10-0${day}`).profit;assert.equal(L.round(sum),L.totals(finance).profit)});
+ console.log(`REPORT CHECKS: ${count} passed`);
+}finally{await rm(dir,{recursive:true,force:true})}

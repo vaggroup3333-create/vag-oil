@@ -1,0 +1,8 @@
+'use client';
+import {useEffect,useState} from 'react';
+export function BackupSettings(){
+ const [status,setStatus]=useState<any>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ async function refresh(){const r=await fetch('/vag-oil/api/backups',{cache:'no-store'});const data:any=await r.json();if(!r.ok)throw Error(data.error);setStatus(data);}
+ useEffect(()=>{refresh().catch(()=>setError('Не удалось проверить резервные копии'))},[]);
+ return <div><h3>Копии данных и фотографий</h3><p>Рабочий учёт: товары, документы, черновики, оплаты и фотографии. Копии хранятся 30 дней.</p><p>{status?.schedule?'Расписание настроено: ежедневно в 03:00 по Душанбе.':'Ночное расписание ещё не подключено.'}</p><p>{status?.latest?<>Последняя успешная копия: <b>{new Date(status.latest.createdAt).toLocaleString('ru-RU',{timeZone:'Asia/Dushanbe'})}</b> (Душанбе). Фотографий: {status.latest.counts.photos}.</>:status?'Успешных копий пока нет.':'Проверяем копии…'}</p><p><small>Пароли и неотправленные чеки на устройствах в копию не входят. Копии находятся в хранилище этого приложения; отдельный скачанный архив храните у себя.</small></p>{error&&<p role="alert" className="error">{error}</p>}<button disabled={busy} onClick={async()=>{setBusy(true);setError('');try{const r=await fetch('/vag-oil/api/backups',{method:'POST'});const data:any=await r.json();if(!r.ok)throw Error(data.error);await refresh()}catch(e){setError((e as Error).message)}finally{setBusy(false)}}}>{busy?'Копирование и проверка…':'Создать копию с фотографиями'}</button> <button disabled={busy} onClick={()=>{setError('');refresh().catch(()=>setError('Не удалось проверить копии'))}}>Проверить состояние</button></div>;
+}

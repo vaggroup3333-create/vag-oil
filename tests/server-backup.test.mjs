@@ -1,0 +1,48 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {createRequire} from 'node:module';
+import ts from 'typescript';
+const require=createRequire(import.meta.url);
+const {Miniflare}=require(require.resolve('miniflare',{paths:[require.resolve('wrangler')]}));
+const compile=source=>ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText.replace(/^export /gm,'');
+const core=compile(await readFile(new URL('../lib/server-backup.ts',import.meta.url),'utf8'));
+const route=compile((await readFile(new URL('../app/mcp/route.ts',import.meta.url),'utf8')).replace(/import \{backupStatus[^\n]+\n/,''));
+const mf=new Miniflare({modules:true,compatibilityDate:'2026-05-15',script:core+'\n'+route+`\nexport default {async fetch(req,env){if(new URL(req.url).pathname==='/mcp')return POST(req);try{return Response.json(await createBackup(env,'daily',new Date('2026-10-18T06:00:00Z')))}catch(e){return Response.json({error:e.message},{status:500})}}}`,d1Databases:['DB','RESTORE'],r2Buckets:['BUCKET'],bindings:{POS_LEDGER_OWNER:'owner-test'}});
+try{
+ const db=await mf.getD1Database('DB'),restore=await mf.getD1Database('RESTORE'),bucket=await mf.getR2Bucket('BUCKET');
+ await db.prepare('CREATE TABLE ledgers(id TEXT PRIMARY KEY,data TEXT,version INTEGER)').run();
+ await db.prepare('CREATE TABLE pos_cashier_operations(ledger_id TEXT,op_id TEXT,payload_hash TEXT,entry_id TEXT,received_at TEXT)').run();
+ await db.prepare('CREATE TABLE pos_ledger_resets(ledger_id TEXT,reset_at TEXT,reset_id TEXT)').run();
+ const photo='11111111-1111-1111-1111-111111111111.jpg';
+ const live=process.env.OIL_BACKUP_TEST_INPUT?JSON.parse(await readFile(process.env.OIL_BACKUP_TEST_INPUT,'utf8')):{products:[{id:'p1',name:'Oil',imageKey:photo}],entries:[{id:'draft1',status:'draft'}],payments:[]};
+ await db.prepare('INSERT INTO ledgers VALUES(?,?,?)').bind('owner-test:live',JSON.stringify(live),274).run();
+ await db.prepare('INSERT INTO ledgers VALUES(?,?,?)').bind('owner-test:demo',JSON.stringify({products:[],entries:[]}),2).run();
+ await db.prepare('INSERT INTO ledgers VALUES(?,?,?)').bind('other-owner:live',JSON.stringify({products:[],entries:[]}),9).run();
+ await db.prepare('INSERT INTO pos_cashier_operations VALUES(?,?,?,?,?)').bind('owner-test:live','op1','hash1','entry1','2026-10-17').run();
+ await db.prepare('INSERT INTO pos_ledger_resets VALUES(?,?,?)').bind('owner-test:live','2026-10-01','reset1').run();
+ const before=await db.prepare('SELECT * FROM ledgers ORDER BY id').all();
+ const photos=live.products.filter(p=>p.imageKey);assert.ok(photos.length);
+ let result=await mf.dispatchFetch('https://local.test/backup');assert.equal(result.status,500,'missing photo fails closed');
+ assert.equal((await bucket.list({prefix:'ledger-backups/'})).objects.filter(o=>o.key.endsWith('manifest.json')).length,0);
+ for(const p of photos)await bucket.put('product-photos/owner-test/live/'+p.imageKey,new Uint8Array([255,216,255,42]),{httpMetadata:{contentType:'image/jpeg'}});
+ result=await mf.dispatchFetch('https://local.test/backup');assert.equal(result.status,200,await result.clone().text());const saved=await result.json();
+ assert.equal(saved.id,'daily-2026-10-18');assert.equal(saved.counts.photos,new Set(photos.map(p=>p.imageKey)).size);
+ const prefix='ledger-backups/owner-test/'+saved.id+'/';const manifest=await (await bucket.get(prefix+'manifest.json')).json();
+ assert.deepEqual(JSON.parse(manifest.ledgers.find(x=>x.id.endsWith(':live')).data),live);assert.equal(manifest.ledgers.length,2);assert.equal(manifest.operations.length,1);assert.equal(manifest.resets.length,1);
+ assert.deepEqual((await db.prepare('SELECT * FROM ledgers ORDER BY id').all()).results,before.results,'live database unchanged');
+ // Restore the actual captured ledger snapshot into a separate D1 database.
+ await restore.prepare('CREATE TABLE ledgers(id TEXT PRIMARY KEY,data TEXT,version INTEGER)').run();
+ for(const row of manifest.ledgers)await restore.prepare('INSERT INTO ledgers VALUES(?,?,?)').bind(row.id,row.data,row.version).run();
+ const restored=await restore.prepare('SELECT data,version FROM ledgers WHERE id=?').bind('owner-test:live').first();assert.deepEqual(JSON.parse(restored.data),live);assert.equal(restored.version,274);
+ result=await mf.dispatchFetch('https://local.test/backup');assert.equal(result.status,200);assert.equal((await result.json()).createdAt,saved.createdAt,'retry keeps same daily snapshot');
+ const rpc=(name,args={},headers={})=>mf.dispatchFetch('https://local.test/mcp',{method:'POST',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name,arguments:args}})});
+ assert.equal((await (await rpc('backup_status')).json()).result.isError,true);
+ assert.equal((await (await rpc('backup_status',{}, {'oai-authenticated-user-id':'other','oai-authenticated-user-email':'other@example.com'})).json()).result.isError,true);
+ const identity={'oai-authenticated-user-id':'verified-owner','oai-authenticated-user-email':'vaggroup3333@gmail.com'};
+ assert.ok((await (await rpc('backup_status',{},identity)).json()).result.content);
+ await bucket.put(manifest.photos[0].key,'corrupted');
+ assert.equal((await (await rpc('verify_backup',{id:saved.id},identity)).json()).result.isError,true,'corruption is detected');
+ assert.equal((await mf.dispatchFetch('https://local.test/backup')).status,500,'retry refuses corrupt daily copy');
+ assert.ok(await bucket.head(manifest.photos[0].source),'original photo survives');
+ console.log('PASS: isolated D1/R2 backup and restore, both ledgers and sync receipts, missing/corrupt photos fail closed, owner-only auth, idempotent daily copy, unchanged production-source fixture. Products:',live.products.length);
+}finally{await mf.dispose()}

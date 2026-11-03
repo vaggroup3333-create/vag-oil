@@ -1,0 +1,11 @@
+import {createRequire} from 'node:module';
+import {writeFile} from 'node:fs/promises';
+import {resolve} from 'node:path';
+const require=createRequire(import.meta.url);
+const {build}=require(require.resolve('esbuild',{paths:[require.resolve('vite')]}));
+const output=process.argv[2];if(!output)throw Error('Pass an absolute HTML output path');
+const result=await build({entryPoints:['tests/packaging-lab.tsx'],absWorkingDir:resolve(import.meta.dirname,'..'),bundle:true,write:false,outdir:'lab-output',minify:true,jsx:'automatic',define:{'process.env.NODE_ENV':'"production"'},target:['es2022'],loader:{'.css':'css'}});
+const js=result.outputFiles.find(x=>x.path.endsWith('.js')).text.replaceAll('</script','<\\/script');
+const css=result.outputFiles.filter(x=>x.path.endsWith('.css')).map(x=>x.text).join('\n');
+await writeFile(output,`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src data:"><title>VAG Oil — тест упаковок</title><style>${css}\n.labHeader{padding:24px;background:#214f50;color:white;display:flex;justify-content:space-between;gap:20px;align-items:center}.labHeader p{color:#d2e9df;margin:8px 0 0}.labMain{max-width:1300px;margin:auto;padding:24px}.labNav{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}.labMain>.panel{padding:24px;margin:20px 0}.labMain>.notice{margin-bottom:18px}.labMain .cashapp{height:850px}.labMain .packControls{max-width:650px}.labHeader button{flex-shrink:0}@media(max-width:650px){.labMain{padding:12px}.labHeader{padding:16px;display:block}.labHeader button{margin-top:12px}}</style></head><body><div id="root"></div><script>${js}</script></body></html>`);
+console.log(output);

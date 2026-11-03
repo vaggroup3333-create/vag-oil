@@ -1,0 +1,12 @@
+import './globals.css';
+import './supplier-sales.css';
+import './cashier-mobile.css';
+import './appearance.css';
+import './supplier-payments.css';
+import './purchase-returns.css';
+import './opening-stock.css';
+import './paid-stock-invoices.css';
+import './cashier-cart.css';
+import './cash-movements.css';
+export const metadata={title:'VAG Oil — учёт сервиса',description:'Масла, склад, продажи и финансы'};
+export default function Layout({children}:{children:React.ReactNode}){return <html lang="ru"><head><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-status-bar-style" content="default"/><meta name="apple-mobile-web-app-title" content="VAG Oil"/><link rel="manifest" href="/vag-oil/director.webmanifest"/><link rel="apple-touch-icon" href="/vag-oil/vag-icon-180.png"/><meta name="theme-color" content="#338f91"/></head><body>{children}</body></html>}

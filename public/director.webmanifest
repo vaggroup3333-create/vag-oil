@@ -1,0 +1,25 @@
+{
+  "id": "/vag-oil/",
+  "name": "VAG Oil — кабинет директора",
+  "short_name": "VAG Кабинет",
+  "start_url": "/vag-oil/",
+  "scope": "/vag-oil/",
+  "display": "standalone",
+  "background_color": "#f5faf9",
+  "theme_color": "#338f91",
+  "lang": "ru",
+  "icons": [
+    {
+      "src": "/vag-oil/vag-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/vag-oil/vag-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
