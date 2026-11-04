@@ -8,9 +8,8 @@ const normalize=(value:string)=>value.toLocaleLowerCase('ru').replace(/ё/g,'е'
 const quantity=(value:number)=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:3}).format(value);
 const money=(value:number)=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2}).format(value)+' TJS';
 
-export function MobileCashierSearch({value,onChange,wholesale,onWholesaleChange,disabled,onScan}:{
-  value:string;onChange:(value:string)=>void;wholesale:boolean;
-  onWholesaleChange:(value:boolean)=>void;disabled:boolean;onScan:()=>void;
+export function MobileCashierSearch({value,onChange,disabled,onScan}:{
+  value:string;onChange:(value:string)=>void;disabled:boolean;onScan:()=>void;
 }){
   const input=useRef<HTMLInputElement>(null);
   return <div className="cashMobileSearchPanel">
@@ -24,19 +23,13 @@ export function MobileCashierSearch({value,onChange,wholesale,onWholesaleChange,
       </form>
       <button type="button" className="cashMobileScan" disabled={disabled} onClick={onScan} aria-label="Сканировать штрихкод или QR"><ScanLine size={22}/><span>Сканер</span></button>
     </div>
-    <div className="cashMobilePrices" role="group" aria-label="Цены всей корзины">
-      <span>Цены</span>
-      <button type="button" aria-pressed={!wholesale} disabled={disabled} onClick={()=>onWholesaleChange(false)}>Розница</button>
-      <button type="button" aria-pressed={wholesale} disabled={disabled} onClick={()=>onWholesaleChange(true)}>Оптовые</button>
-      <small>Для всей корзины</small>
-    </div>
   </div>;
 }
 
 /** Results stay mounted when the keyboard loses focus, so a tap can reach Add. */
-export function MobileCashierSearchResults({products,value,onAdd,availableQuantity,cartQuantity,wholesale,disabled}:{
+export function MobileCashierSearchResults({products,value,onAdd,availableQuantity,cartQuantity,disabled}:{
   products:Product[];value:string;onAdd:(id:string)=>boolean;availableQuantity:(id:string)=>number;
-  cartQuantity:(id:string)=>number;wholesale:boolean;disabled:boolean;
+  cartQuantity:(id:string)=>number;disabled:boolean;
 }){
   const query=normalize(value);
   if(!query)return null;
@@ -56,7 +49,7 @@ export function MobileCashierSearchResults({products,value,onAdd,availableQuanti
         <p>На складе: {quantity(p.qty)} {p.unit}{available>Math.max(0,p.qty)?' · с черновиками доступно: '+quantity(available)+' '+p.unit:''}</p>
         {inCart>0&&<p className="cashMobileResultInCart">В корзине: {quantity(inCart)} {p.unit}</p>}
         <div className="cashMobileResultAction">
-          <div><strong>{money(wholesale?p.wholesale:p.price)}</strong><small>{wholesale?'Оптовая':'Розничная'} / {p.unit}</small></div>
+          <div><strong>{money(p.price)}</strong><small>Розничная / {p.unit}</small></div>
           <button type="button" disabled={disabled||!canAdd} aria-label={(inCart?'Добавить ещё: ':'В корзину: ')+p.name}
             onClick={()=>{if(onAdd(p.id))document.querySelector<HTMLInputElement>('#cash-mobile-product-search')?.blur();}}>
             <Plus size={19}/>{!canAdd?(inCart?'Всё в корзине':'Нет остатка'):(inCart?'Добавить ещё':'В корзину')}
