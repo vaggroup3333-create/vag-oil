@@ -2,10 +2,10 @@ import {CashierCache,CashierOperation,acceptCashierSnapshot} from './cashier-pro
 import {State} from './ledger';
 export type SyncReply={status:number,data?:State,version?:number,ackId?:string,error?:string};
 export type SyncStore={read:()=>Promise<CashierCache|undefined>,update:(fn:(cache:CashierCache)=>CashierCache)=>Promise<CashierCache>};
-export async function drainCashierQueue(store:SyncStore,send:(operation:CashierOperation)=>Promise<SyncReply>,retryBlocked=false){
+export async function drainCashierQueue(store:SyncStore,send:(operation:CashierOperation)=>Promise<SyncReply>,retryBlocked=false,actorId?:string){
  let count=0;
  while(true){
-  const cache=await store.read(),operation=cache?.pending[0];if(!operation)return {count,blocked:false};
+  const cache=await store.read(),operation=cache?.pending.find(op=>!actorId||!op.actor||op.actor.id===actorId);if(!operation)return {count,blocked:false};
   if(operation.status==='blocked'&&!retryBlocked)return {count,blocked:true,error:operation.error};
   const reply=await send(operation);
   if(reply.status===401)return {count,blocked:false,unauthorized:true,error:reply.error};

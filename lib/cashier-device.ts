@@ -1,5 +1,6 @@
+import type {SaleActor} from './sale-actor';
 import {CashierCache} from './cashier-protocol';
-export type OfflineGrant={workspaceKey:string,role:'director'|'cashier',login:string};
+export type OfflineGrant={workspaceKey:string,role:'director'|'cashier',login:string,actor?:SaleActor};
 let database:Promise<IDBDatabase>|null=null;
 function open(){
  if(!database)database=new Promise((resolve,reject)=>{

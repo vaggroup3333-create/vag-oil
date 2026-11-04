@@ -1,7 +1,8 @@
+import type {SaleActor} from './sale-actor';
 import {draftStock} from './draft-stock';
 import type {State,Entry,ApplyContext} from './ledger';
 import {initial,normalize,apply,round} from './ledger';
-export type CashierOperation={id:string,createdAt:string,action:any,receipt:Entry,status?:'pending'|'blocked',error?:string};
+export type CashierOperation={actor?:SaleActor,id:string,createdAt:string,action:any,receipt:Entry,status?:'pending'|'blocked',error?:string};
 export type CashierCache={base:State,version:number,pending:CashierOperation[],lastSync:string,resetAt?:string};
 export const uuidPattern=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 // Only sales data goes to a cashier device. Supplier debt, cost and cash balances stay on the server.
@@ -33,7 +34,7 @@ export function projectCashierCache(cache:CashierCache):{state:State,error:strin
   if(confirmed.has(operation.id))continue;
   if(operation.status==='blocked'&&!error)error=operation.error||'Чек требует проверки. Нажмите «Синхронизировать»';
   if(!replayFailed){
-   try{s=applyCashierAction(s,operation.action,{id:operation.id,now:operation.createdAt,number:'К-'+operation.id.slice(0,8).toUpperCase()});continue}
+   try{s=applyCashierAction(s,operation.action,{id:operation.id,now:operation.createdAt,cashier:operation.actor,number:'К-'+operation.id.slice(0,8).toUpperCase()});continue}
    catch{replayFailed=true;if(!error)error='Остатки или долг изменились, пока касса была без связи. Сначала нажмите «Синхронизировать» и проверьте ожидающий чек';}
   }
   // Retain every unsent receipt for display/export, without applying dependent
@@ -43,12 +44,12 @@ export function projectCashierCache(cache:CashierCache):{state:State,error:strin
  return {state:s,error};
 }
 export function localCashierState(cache:CashierCache):State{return projectCashierCache(cache).state}
-export function enqueueCashier(cache:CashierCache,action:any,now=new Date().toISOString(),id=crypto.randomUUID()):CashierCache{
+export function enqueueCashier(cache:CashierCache,action:any,now=new Date().toISOString(),id=crypto.randomUUID(),actor?:SaleActor):CashierCache{
  if(cache.base.stockSources?.schema!==1)throw Error('Откройте кассу с интернетом и нажмите «Синхронизировать», чтобы загрузить раздельные остатки');
  const projection=projectCashierCache(cache);if(projection.error)throw Error(projection.error);
  const s=projection.state;validateCashierAction(s,action);const clean=cleanCashierAction(action);
- const next=applyCashierAction(s,clean,{id,now,number:'К-'+id.slice(0,8).toUpperCase()});
- return {...cache,pending:[...cache.pending,{id,createdAt:now,action:clean,receipt:next.entries.find(e=>e.id===id)!,status:'pending'}]};
+ const next=applyCashierAction(s,clean,{id,now,cashier:actor,number:'К-'+id.slice(0,8).toUpperCase()});
+ return {...cache,pending:[...cache.pending,{id,actor,createdAt:now,action:clean,receipt:next.entries.find(e=>e.id===id)!,status:'pending'}]};
 }
 export function acceptCashierSnapshot(cache:CashierCache,data:State,version:number,ackId?:string):CashierCache{
  return {...cache,base:version>=cache.version?data:cache.base,version:Math.max(version,cache.version),pending:cache.pending.filter(op=>op.id!==ackId),lastSync:new Date().toISOString()};
@@ -56,7 +57,7 @@ export function acceptCashierSnapshot(cache:CashierCache,data:State,version:numb
 
 export function applyCashierAction(state:State,action:any,context:ApplyContext):State{
  const next=apply(state,action,context);
- if(action.type==='payment_party'){const party=next.parties.find(p=>p.id===action.partyId)!;const amount=round(Number(action.amount));next.entries.push({id:context.id!,number:context.number||String(next.entries.length+1).padStart(6,'0'),date:context.now!,createdAt:context.now!,type:'receipt',status:'posted',party:party.name,partyId:party.id,lines:[],total:amount,paid:amount,credit:0,cost:0,service:0,discount:0,note:String(action.note||'Погашение долга клиента'),account:action.account});}
+ if(action.type==='payment_party'){const party=next.parties.find(p=>p.id===action.partyId)!;const amount=round(Number(action.amount));next.entries.push({id:context.id!,number:context.number||String(next.entries.length+1).padStart(6,'0'),date:context.now!,createdAt:context.now!,type:'receipt',status:'posted',cashier:context.cashier,party:party.name,partyId:party.id,lines:[],total:amount,paid:amount,credit:0,cost:0,service:0,discount:0,note:String(action.note||'Погашение долга клиента'),account:action.account});}
  return next;
 }
 
