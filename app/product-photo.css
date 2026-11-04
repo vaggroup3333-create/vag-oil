@@ -1,0 +1,15 @@
+.productPhotoTrigger{position:relative;cursor:zoom-in;overflow:hidden}
+.productPhotoHint{position:absolute;right:3px;bottom:3px;display:flex;padding:3px;border-radius:5px;background:#155558e6;color:#fff;pointer-events:none}
+.productPhotoCardTrigger{width:100%;height:100%;padding:6px;border:0;background:transparent}
+.productPhotoCardTrigger img{width:100%;height:100%;object-fit:contain}
+.productPhotoBackdrop{position:fixed;inset:0;z-index:10000;background:#10252ed9}
+.productPhotoViewer{position:fixed;z-index:10001;left:50%;top:50%;transform:translate(-50%,-50%);width:min(1120px,94vw);height:90vh;height:90dvh;max-height:960px;display:flex;flex-direction:column;overflow:hidden;border:1px solid #dce7e7;border-radius:16px;background:#fff;color:#23464b;box-shadow:0 24px 90px #0005;white-space:normal}
+.productPhotoHeading{display:flex;align-items:center;gap:16px;padding:14px 18px;flex:none;border-bottom:1px solid #e1ebeb;background:#f7fbfa}
+.productPhotoTitle{margin:0;flex:1;min-width:0;font-size:17px;font-weight:700;line-height:1.4;overflow-wrap:anywhere;max-height:4.2em;overflow:auto}
+.productPhotoClose{flex:none;width:44px;height:44px;padding:8px;border:1px solid #cfdddd;border-radius:10px;background:#fff;color:#245d60}
+.productPhotoClose:hover{background:#e6f3f0}
+.productPhotoStage{flex:1;min-height:0;min-width:0;display:flex;align-items:center;justify-content:center;overflow:auto;padding:16px;background:#fff;overscroll-behavior:contain}
+.productPhotoStage>img{display:block;width:100%;height:100%;min-height:0;object-fit:contain}
+.productPhotoCaption{flex:none;text-align:center;margin:0;padding:10px 16px;font-size:12px;line-height:1.4;color:#627a7f;border-top:1px solid #e8eeee;background:#f7fbfa}
+.productPhotoError{max-width:420px;margin:20px;font-size:15px;line-height:1.6;text-align:center;color:#8c4242}
+@media(max-width:600px){.productPhotoViewer{width:100%;height:100vh;height:100dvh;max-height:none;border:0;border-radius:0}.productPhotoHeading{padding:12px;padding-top:max(12px,env(safe-area-inset-top));gap:10px}.productPhotoTitle{font-size:15px}.productPhotoStage{padding:10px}.productPhotoCaption{padding-bottom:max(12px,env(safe-area-inset-bottom))}}

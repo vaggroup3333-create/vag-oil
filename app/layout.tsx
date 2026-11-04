@@ -1,4 +1,5 @@
 import './globals.css';
+import './product-photo.css';
 import './supplier-sales.css';
 import './cashier-mobile.css';
 import './appearance.css';
