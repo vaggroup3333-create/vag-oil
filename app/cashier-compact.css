@@ -1,0 +1,126 @@
+/* Scoped to cashier selection and cart: keep touch targets while reducing whitespace. */
+.cashapp .cashCatalogOverlay { padding: 12px; }
+.cashapp .cashCartCatalog {
+  width: 800px;
+  max-width: 100%;
+  height: auto;
+  max-height: min(82dvh, 760px);
+  border-radius: 14px;
+}
+.cashapp .cashCartCatalog .modalhead { padding: 12px 16px; gap: 10px; }
+.cashapp .cashCartCatalog .modalhead h2 { font-size: 18px; line-height: 1.3; gap: 7px; }
+.cashapp .cashCartCatalog .modalhead p { margin: 4px 0 0; font-size: 12px; }
+.cashapp .cashCartCatalogSearch { padding: 9px 16px; gap: 10px; }
+.cashapp .cashCartCatalogSearch label { gap: 4px; }
+.cashapp .cashCartCatalogSearch input { min-height: 38px; padding: 8px 10px; }
+.cashapp .cashCartFeedback { padding: 7px 16px; font-size: 12px; }
+.cashapp .cashCartCatalog .modalbody { padding: 10px 16px; overscroll-behavior: contain; }
+.cashapp .cashCartCatalogItems { grid-template-columns: 1fr; gap: 6px; }
+.cashapp .cashCartCatalogItems > article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 9px;
+}
+.cashapp .cashCartCatalogProduct { gap: 9px; align-items: center; min-width: 0; }
+.cashapp .cashCartCatalogProduct img,
+.cashapp .cashCartProductIcon { width: 36px; height: 36px; border-radius: 7px; }
+.cashapp .cashCartProductIcon svg { width: 20px; height: 20px; }
+.cashapp .cashCartCatalogProduct h3 { font-size: 14px; line-height: 1.35; margin: 2px 0 3px; }
+.cashapp .cashCartCatalogProduct small { font-size: 11px; line-height: 1.3; }
+.cashapp .cashCartCatalogAction { align-items: center; gap: 8px; }
+.cashapp .cashCartCatalogAction > div { min-width: 0; }
+.cashapp .cashCartCatalogAction strong { font-size: 15px; white-space: nowrap; }
+.cashapp .cashCartCatalogAction small { font-size: 10px; }
+.cashapp .cashCartQuantity { font-size: 11px; margin-top: 3px; }
+.cashapp .cashCartCatalogAction > button {
+  min-height: 40px;
+  padding: 7px 9px;
+  font-size: 12px;
+  flex: none;
+}
+.cashapp .cashCartCatalogFooter { padding: 10px 16px; gap: 10px; }
+.cashapp .cashCartCatalogFooter > div { gap: 3px 10px; font-size: 12px; }
+.cashapp .cashCartCatalogFooter strong { font-size: 18px; }
+.cashapp .cashCartCatalogFooter > button { min-height: 42px; padding: 9px 12px; font-size: 13px; }
+
+/* Compact origin choices; every available stock source stays visible. */
+.cashapp .cashcart .sourcePicker { margin: 7px 0; padding: 7px 8px; border-radius: 8px; }
+.cashapp .cashcart .sourcePicker legend { font-size: 11px; }
+.cashapp .cashcart .sourceChoices { gap: 5px; }
+.cashapp .cashcart .sourceChoice {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 7px;
+  min-height: 36px;
+  padding: 6px 8px;
+  font-size: 12px;
+  border-radius: 7px;
+}
+.cashapp .cashcart .sourceChoice.selected { padding: 5px 7px; }
+.cashapp .cashcart .sourceChoice b { font-size: 12px; }
+.cashapp .cashcart .sourceChoice small { flex-basis: 100%; font-size: 10px; }
+.cashapp .cashcart .sourceAttention { margin-top: 5px; font-size: 11px; line-height: 1.4; }
+
+@media (max-width: 850px) {
+  .cashapp .cashCartCatalog {
+    height: auto;
+    max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) !important;
+    border-radius: 14px;
+  }
+  .cashapp .cashCartCatalogSearch input { min-height: 44px; font-size: 16px; }
+  .cashapp .cashCartCatalog .modalhead .icon { min-width: 44px; min-height: 44px; }
+  .cashapp .cashCartCatalogItems > article { grid-template-columns: minmax(0, 1fr) 112px; gap: 8px; }
+  .cashapp .cashCartCatalogAction { flex-direction: column; align-items: stretch; gap: 5px; }
+  .cashapp .cashCartCatalogAction > button { min-height: 44px; justify-content: center; }
+  .cashapp .cashCartCatalogFooter { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+  .cashapp .cashCartCatalogFooter > button { min-height: 44px; }
+  .cashapp .cashMobileResult {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 112px;
+    gap: 3px 10px;
+    padding: 10px;
+    margin-bottom: 6px;
+    border-radius: 9px;
+    box-shadow: none;
+  }
+  .cashapp .cashMobileResult > small,
+  .cashapp .cashMobileResult > h3,
+  .cashapp .cashMobileResult > p { grid-column: 1; margin: 0; }
+  .cashapp .cashMobileResult h3 { font-size: 14px; line-height: 1.35; }
+  .cashapp .cashMobileResult p { font-size: 11px; line-height: 1.35; }
+  .cashapp .cashMobileResultAction {
+    grid-column: 2;
+    grid-row: 1 / span 5;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 5px;
+    margin: 0;
+  }
+  .cashapp .cashMobileResultAction strong { font-size: 16px; line-height: 1.3; }
+  .cashapp .cashMobileResultAction small { font-size: 10px; }
+  .cashapp .cashMobileResultAction > button { min-height: 44px; padding: 8px 6px; font-size: 12px; justify-content: center; }
+  .cashapp .cashMobileLines article { padding: 10px; margin-bottom: 7px; border-radius: 10px; box-shadow: none; }
+  .cashapp .cashMobileLineTitle { gap: 7px; }
+  .cashapp .cashMobileLineTitle h3 { font-size: 15px; line-height: 1.3; margin: 3px 0 4px; }
+  .cashapp .cashMobileLineTitle > button { min-width: 44px; min-height: 44px; }
+  .cashapp .cashcart .cashLinePrice { gap: 6px; margin: 6px 0; }
+  .cashapp .cashcart .cashLinePriceButton { min-height: 44px; padding: 8px 13px; }
+  .cashapp .cashLineMain { margin: 7px 0 5px; gap: 8px; }
+  .cashapp .cashLineMain > b { font-size: 17px; }
+  .cashapp .cashQuantityStepper { height: 46px; }
+  .cashapp .cashQuantityStepper > button { width: 44px; min-height: 44px; }
+  .cashapp .cashLineDetails { margin-top: 6px; }
+  .cashapp .cashLineDetails > summary { min-height: 44px; padding: 10px 0 5px; }
+  .cashapp .cashcart .sourceChoice { min-height: 44px; min-width: 0; flex: 1 1 auto; }
+}
+@media (max-width: 420px) {
+  .cashapp .cashCartCatalogProduct img,
+  .cashapp .cashCartProductIcon { width: 28px; height: 28px; }
+  .cashapp .cashCartCatalogSearch { grid-template-columns: 1fr; }
+}
