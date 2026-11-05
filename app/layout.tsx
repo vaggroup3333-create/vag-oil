@@ -8,6 +8,7 @@ import './purchase-returns.css';
 import './opening-stock.css';
 import './paid-stock-invoices.css';
 import './purchase-invoice-search.css';
+import './invoice-row-focus.css';
 import './cashier-cart.css';
 import './cashier-mobile-search.css';
 import './cart-line-price.css';

@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import {stripTypeScriptTypes} from 'node:module';
+import {readFile} from 'node:fs/promises';
+async function moduleFrom(path){const text=stripTypeScriptTypes(await readFile(new URL(path,import.meta.url),'utf8'));return import('data:text/javascript;base64,'+Buffer.from(text).toString('base64'))}
+const {paidDraftSearchProducts,paidEntrySearchProducts,searchPaidInvoice,searchPurchaseInvoice}=await moduleFrom('../lib/paid-invoice-search.ts');
+const {invoiceRowPage}=await moduleFrom('../lib/invoice-row-focus.ts');
+const catalogue=[{id:'p',name:'Одинаковое название',article:'TARGET',code:'100001'}];
+const rows=[{key:'new-first',product:{name:'Одинаковое название',article:'OTHER'}},{key:'new-target',product:{name:'Одинаковое название',article:'TARGET'}},{key:'catalogue-target',productId:'p'}];
+assert.deepEqual(searchPaidInvoice('TARGET',[],paidDraftSearchProducts({rows},catalogue)).products.map(p=>p.rowKey),['new-target','catalogue-target']);
+const lines=Array.from({length:65},(_,i)=>({id:'p'+i,name:'Товар '+i}));lines[54]={id:'p',name:'Прежнее название'};
+const purchase={type:'purchase',status:'posted',number:'123',party:'Поставщик',total:10,note:'',lines};
+const before=JSON.stringify({rows,lines,purchase,catalogue});
+const found=searchPurchaseInvoice('TARGET',purchase,catalogue).products[0];
+assert.equal(found.productId,'p');assert.equal(found.lineIndex,54);
+assert.equal(invoiceRowPage(lines,found.productId,20),2);
+assert.equal(invoiceRowPage(lines.slice().reverse(),found.productId,10),1);
+assert.equal(invoiceRowPage(lines,'missing',20),null);
+assert.equal(invoiceRowPage(lines,undefined,20),null);
+assert.equal(invoiceRowPage(lines,found.productId,0),null);
+assert.equal(paidEntrySearchProducts({lines:[lines[54]]},catalogue)[0].lineIndex,0);
+assert.equal(JSON.stringify({rows,lines,purchase,catalogue}),before);
+console.log('PASS: exact new/existing draft rows, historical entry identity, first/late row, pagination, sorted order and unchanged document data.');

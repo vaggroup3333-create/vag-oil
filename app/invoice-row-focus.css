@@ -1,0 +1,11 @@
+.paidRegisterMatches .invoiceSearchProduct,.purchaseSearchMatches .invoiceSearchProduct{display:block;width:100%;min-height:44px;margin:5px 0 0;padding:6px 7px;text-align:left;white-space:normal;background:transparent;border:1px solid transparent;border-radius:6px;line-height:1.45;cursor:pointer}
+.invoiceSearchProduct b,.invoiceSearchProduct>span{display:block;white-space:normal;overflow-wrap:anywhere}
+.invoiceSearchProduct b{font-size:12px;font-weight:600;color:#215b64}
+.invoiceSearchProduct>span{font-size:11px;color:#4b6878}
+.paidRegisterMatches .invoiceSearchProduct:hover,.purchaseSearchMatches .invoiceSearchProduct:hover{background:#dff1f1;border-color:#a9d4d5}
+.invoiceSearchProduct:focus-visible{outline:2px solid #2376bb;outline-offset:2px}
+tr.invoiceSearchHighlight>td{background:#fff2bd!important;box-shadow:inset 0 1px #dfb84a,inset 0 -1px #dfb84a}
+tr.invoiceSearchHighlight>td:first-child{box-shadow:inset 4px 0 #b68000,inset 0 1px #dfb84a,inset 0 -1px #dfb84a}
+tr.invoiceSearchHighlight{scroll-margin-block:18px;outline:none}
+tr.paidDuplicateRow.invoiceSearchHighlight>td{background:#fff1f2!important}
+@media print{tr.invoiceSearchHighlight>td{background:transparent!important;box-shadow:none!important}}

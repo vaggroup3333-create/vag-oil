@@ -1,21 +1,21 @@
 import type {Entry,PaidStockDraft,Product} from './ledger';
 
-export type InvoiceSearchProduct={name:string;article?:string;barcode?:string;qrCode?:string;code?:string;currentName?:string};
+export type InvoiceSearchProduct={rowKey?:string;productId?:string;lineIndex?:number;name:string;article?:string;barcode?:string;qrCode?:string;code?:string;currentName?:string};
 const normalize=(value:string)=>value.normalize('NFKC').toLocaleLowerCase('ru').replace(/ё/g,'е').replace(/[‐‑‒–—−]/g,'-').replace(/\s+/g,' ').trim();
 
 export function paidDraftSearchProducts(draft:PaidStockDraft,products:Product[]):InvoiceSearchProduct[]{
  const byId=new Map(products.map(p=>[p.id,p]));
  return draft.rows.map(row=>{
   const product=row.productId?byId.get(row.productId):row.product;
-  return {name:product?.name||'Новый товар',article:product?.article,barcode:product?.barcode,qrCode:product?.qrCode,code:row.productId?byId.get(row.productId)?.code:undefined};
+  return {rowKey:row.key,productId:row.productId,name:product?.name||'Новый товар',article:product?.article,barcode:product?.barcode,qrCode:product?.qrCode,code:row.productId?byId.get(row.productId)?.code:undefined};
  });
 }
 
 export function paidEntrySearchProducts(entry:Entry,products:Product[]):InvoiceSearchProduct[]{
  const byId=new Map(products.map(p=>[p.id,p]));
- return entry.lines.map(line=>{
+ return entry.lines.map((line,lineIndex)=>{
   const product=byId.get(line.id);
-  return {name:line.name||product?.name||'Товар',currentName:product?.name,article:product?.article,barcode:product?.barcode,qrCode:product?.qrCode,code:product?.code};
+  return {productId:line.id,lineIndex,name:line.name||product?.name||'Товар',currentName:product?.name,article:product?.article,barcode:product?.barcode,qrCode:product?.qrCode,code:product?.code};
  });
 }
 
