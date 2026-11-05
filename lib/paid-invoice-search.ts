@@ -29,3 +29,9 @@ export function searchPaidInvoice(query:string,metadata:string[],products:Invoic
  });
  return {matches:tokens.every(token=>documentText.includes(token))||found.length>0,products:found};
 }
+
+// Supplier purchases use catalogue references in both draft and posted lines.
+export function searchPurchaseInvoice(query:string,entry:Entry,products:Product[]){
+ if(entry.type!=='purchase'||entry.status==='deleted')return {matches:false,products:[] as InvoiceSearchProduct[]};
+ return searchPaidInvoice(query,[entry.number,entry.title||'',entry.party,entry.note,entry.car||'',entry.phone||'',entry.cashier?.name||'',entry.cashier?.login||'',String(entry.total),new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2}).format(entry.total)+' TJS'],paidEntrySearchProducts(entry,products));
+}

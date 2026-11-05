@@ -1,0 +1,8 @@
+.purchaseSearchDocument{min-width:230px;max-width:340px;white-space:normal}
+.purchaseSearchMatches{margin-top:7px;padding:8px 10px;background:#eff9f8;border:1px solid #cce5e6;border-radius:8px;color:#315f66;font-size:12px;line-height:1.45;overflow-wrap:anywhere;white-space:normal}
+.purchaseSearchMatches>span{display:block;font-size:11px;color:#507680}
+.purchaseSearchMatches>div{margin-top:5px}
+.purchaseSearchMatches b,.purchaseSearchMatches div>span{display:block;white-space:normal}
+.purchaseSearchMatches b{font-weight:600;color:#215b64}
+.purchaseSearchMatches div>span{font-size:11px;color:#4b6878}
+.purchaseSearchMatches>div+span{margin-top:6px}

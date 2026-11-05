@@ -1,6 +1,6 @@
 {
   "name": "vag-oil-selfhosted",
-  "version": "0.67.2",
+  "version": "0.67.3",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
