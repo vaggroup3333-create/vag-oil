@@ -16,5 +16,36 @@ export function CashierAccess({children}:{children:(grant:OfflineGrant)=>ReactNo
   const expired=()=>{setGrant(null);setPassword('');setError('Войдите снова. Неотправленные чеки сохранены на устройстве.');void deviceUpdate('offline-grant',()=>undefined)};window.addEventListener('pos-session-expired',expired);return()=>{active=false;window.removeEventListener('pos-session-expired',expired)};
  },[]);
  if(grant)return <>{children(grant)}</>;
- return <div className="posLogin"><form onSubmit={async e=>{e.preventDefault();if(busy)return;setBusy(true);setError('');try{const response=await fetch('/vag-oil/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'login',login,password}),signal:AbortSignal.timeout(15000)});const data:any=await readAuthResponse(response);if(!response.ok)throw Error(data.error||'Не удалось войти');await remember(data);setPassword('')}catch(e){setError((e as Error).message)}finally{setBusy(false)}}}><div className="posLoginBrand"><Droplets size={42}/><h1>VAG OIL · КАССА</h1></div><h2><LockKeyhole size={20}/> Вход кассира</h2><p>Введите личный логин и пароль, которые создал директор.</p><div className="loginRoleLinks"><a className="green" href="/vag-oil/administrator">Вход администратора</a><a href="/vag-oil/">Вход директора</a></div>{error&&<div className="error" role="alert">{error}</div>}{checking?<p>Проверка устройства…</p>:<><label>Логин<input required autoComplete="username" autoCapitalize="none" spellCheck={false} value={login} onChange={e=>setLogin(e.target.value)}/></label><label>Пароль<input type="password" required autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)}/></label><button className="green" disabled={busy}>{busy?'Вход…':'Войти в кассу'}</button></>}<InstallAppButton cashier/></form></div>;
+ return <div className="posLogin"><form autoComplete="on" onSubmit={async e=>{
+  e.preventDefault();if(busy)return;
+  // Password managers may fill the inputs without updating React state first.
+  const fields=new FormData(e.currentTarget),submittedLogin=String(fields.get('username')??login),submittedPassword=String(fields.get('password')??password);
+  setBusy(true);setError('');
+  try{
+   const response=await fetch('/vag-oil/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'login',login:submittedLogin,password:submittedPassword}),signal:AbortSignal.timeout(15000)});
+   const data:any=await readAuthResponse(response);if(!response.ok)throw Error(data.error||'Не удалось войти');
+   await remember(data);setPassword('');
+  }catch(e){setError((e as Error).message)}finally{setBusy(false)}
+ }}>
+  <div className="posLoginBrand"><Droplets size={42}/><h1>VAG OIL · КАССА</h1></div>
+  <h2><LockKeyhole size={20}/> Вход кассира</h2>
+  <p>Введите личный логин и пароль или выберите сохранённый пароль на устройстве.</p>
+  <div className="loginRoleLinks"><a className="green" href="/vag-oil/administrator">Вход администратора</a><a href="/vag-oil/?switch=1">Вход директора</a></div>
+  {error&&<div className="error" role="alert">{error}</div>}
+  {checking?<p>Проверка устройства…</p>:<>
+   <label htmlFor="cashier-username">Логин<input id="cashier-username" name="username" type="text" required autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={login} onChange={e=>setLogin(e.target.value)}/></label>
+   <label htmlFor="cashier-password">Пароль<input id="cashier-password" name="password" type="password" required autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)}/></label>
+   <button type="submit" className="green" disabled={busy}>{busy?'Вход…':'Войти в кассу'}</button>
+   <details className="loginFaceIdGuide">
+    <summary>iPhone: вход с Face ID</summary>
+    <ol>
+     <li>Откройте кассу в Safari. При первом входе сохраните свой логин и пароль.</li>
+     <li>В настройках iPhone включите автозаполнение паролей и разрешите его для Face ID.</li>
+     <li>В следующий раз нажмите поле логина, выберите сохранённый пароль, подтвердите Face ID и нажмите «Войти в кассу».</li>
+    </ol>
+    <p>Пока ваш вход действует, касса открывается сразу. Face ID подтверждает подстановку пароля средствами iPhone.</p>
+   </details>
+  </>}
+  <InstallAppButton cashier/>
+ </form></div>;
 }

@@ -1,0 +1,5 @@
+.posLogin .loginFaceIdGuide{margin-top:16px;padding:12px 14px;border:1px solid #c8e1df;border-radius:12px;background:#f1f9f8;color:#355964;font-size:14px;line-height:1.5}
+.posLogin .loginFaceIdGuide summary{cursor:pointer;font-weight:650;min-height:24px;color:#17676b}
+.posLogin .loginFaceIdGuide ol{margin:10px 0;padding-left:21px}
+.posLogin .loginFaceIdGuide li+li{margin-top:8px}
+.posLogin .loginFaceIdGuide p{font-size:13px;margin:10px 0 0;color:#526b74}
