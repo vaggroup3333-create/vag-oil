@@ -1,0 +1,35 @@
+.photoCatalog{min-width:0}
+.photoCatalogFilters{display:flex;align-items:end;flex-wrap:wrap;gap:12px;padding:16px;background:#fff;border:1px solid #dce7ed;border-radius:14px}
+.photoCatalogFilters>label{flex:1 1 180px;display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:650;color:#45616b;min-width:0}
+.photoCatalogFilters>.photoCatalogSearch{flex:3 1 260px}
+.photoCatalogSearch>span{display:flex;align-items:center;position:relative}
+.photoCatalogSearch svg{position:absolute;left:12px;color:#718b98;pointer-events:none}
+.photoCatalogFilters input,.photoCatalogFilters select{width:100%;min-width:0;min-height:44px;padding:10px 12px;font-size:16px;border:1px solid #cfdee7;border-radius:9px;background:#fff;color:#284f59}
+.photoCatalogSearch input{padding-left:38px}
+.photoCatalogExtra{flex:0 0 auto;max-width:100%;font-size:13px;color:#4a6572}
+.photoCatalogExtra summary{cursor:pointer;padding:14px 4px;min-height:44px}
+.photoCatalogExtra label{display:flex;flex-direction:column;gap:6px;font-weight:600}
+.photoCatalogReset{min-height:44px;font-size:13px}
+.photoCatalogSummary{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px;margin:14px 0;font-size:13px;color:#617b87}
+.photoCatalogSummary strong{color:#345c66}
+.photoCatalogGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px}
+.photoCatalogCard{position:relative;display:flex;flex-direction:column;min-width:0;padding:12px;border:1px solid #d8e5eb;border-radius:13px;background:#fff;box-shadow:0 3px 12px #203e4c05}
+.photoCatalogCard>.photoCatalogPhoto{display:flex;align-items:center;justify-content:center;width:100%;height:154px;flex:none;margin:0 0 10px;padding:8px;border:1px solid #e4edf1;border-radius:9px;background:#f8fafb;color:#6b8995}
+.photoCatalogPhoto img{display:block;max-width:100%;width:100%;height:100%;object-fit:contain}
+.photoCatalogMissing{position:absolute;top:125px;left:12px;right:12px;text-align:center;pointer-events:none;color:#6b8490;font-size:11px}
+.photoCatalogCard>.photoCatalogName{display:block;width:100%;padding:0;margin:0;border:0;border-radius:0;background:transparent;color:#214f59;min-height:42px;font-size:15px;font-weight:700;text-align:left;line-height:1.4;white-space:normal;overflow-wrap:anywhere}
+.photoCatalogName:hover{text-decoration:underline}
+.photoCatalogArticle{display:block;min-height:18px;margin:5px 0 12px;font-size:12px;line-height:1.4;color:#6e8091;overflow-wrap:anywhere}
+.photoCatalogStock,.photoCatalogPrice{display:flex;justify-content:space-between;align-items:baseline;gap:6px;font-size:12px;color:#697d89}
+.photoCatalogStock{margin-top:auto;padding-bottom:7px}
+.photoCatalogStock strong{color:#365d71;font-size:13px}
+.photoCatalogPrice{border-top:1px solid #edf1f4;padding-top:9px}
+.photoCatalogPrice strong{color:#087a69;font-size:17px}
+.photoCatalogCard>.photoCatalogOpen{justify-content:center;width:100%;min-height:44px;margin-top:11px;padding:8px;border:1px solid #d4e9e4;border-radius:8px;background:#eef8f5;color:#19645a;font-size:13px;font-weight:650}
+.photoCatalogCard button:focus-visible,.photoCatalogFilters summary:focus-visible{outline:3px solid #268d9b;outline-offset:3px}
+.photoCatalogMore{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:12px;padding:20px;font-size:13px;color:#667d87}
+.photoCatalogMore button{min-height:44px}
+.photoCatalogEmpty{display:flex;align-items:center;flex-direction:column;gap:12px;padding:38px 16px;background:#fff;border-radius:12px;color:#557580;text-align:center}
+.photoCatalogEmpty p{margin:0}
+@media(max-width:600px){.photoCatalogFilters{padding:12px;gap:8px}.photoCatalogFilters>.photoCatalogSearch{flex-basis:100%}.photoCatalogFilters>label{flex-basis:150px}.photoCatalogSummary{font-size:12px;margin:12px 0}.photoCatalogGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.photoCatalogCard{padding:9px;border-radius:10px}.photoCatalogCard>.photoCatalogPhoto{height:120px;padding:5px;margin-bottom:8px}.photoCatalogMissing{top:94px;left:9px;right:9px;font-size:10px}.photoCatalogCard>.photoCatalogName{font-size:13px;min-height:37px}.photoCatalogArticle{font-size:11px;margin-bottom:9px}.photoCatalogPrice strong{font-size:15px}.photoCatalogCard>.photoCatalogOpen{font-size:12px}.photoCatalogStock,.photoCatalogPrice{flex-wrap:wrap}.photoCatalogExtra summary{padding:13px 2px}}
+@media(max-width:340px){.photoCatalogGrid{grid-template-columns:1fr}}
