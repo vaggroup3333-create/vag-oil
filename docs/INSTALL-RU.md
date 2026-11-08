@@ -119,6 +119,7 @@ ExecStart=/usr/bin/node /opt/vag-oil-friend/scripts/start-local.mjs
 Environment=VAG_OIL_PORT=9088
 Restart=on-failure
 RestartSec=5
+OOMPolicy=kill
 UMask=0077
 
 [Install]
@@ -126,6 +127,8 @@ WantedBy=multi-user.target
 ```
 
 Укажите фактические пути и имя пользователя. Он должен иметь доступ к своей папке программы, `dist/server` и `.selfhost-data`. Настройку службы и HTTPS выполняет администратор вашего сервера. Оригинальный сервер магазина для установки не требуется.
+
+`OOMPolicy=kill` вместе с `Restart=on-failure` позволяет перезапустить всю службу, если ядро остановило один из её процессов из-за нехватки памяти. Это предотвращает работу с оставшейся неполной группой процессов, но не устраняет причину роста памяти. При повторении сбоев проверьте потребление памяти и журналы. Нужны systemd 243 или новее и cgroup v2; [описание OOMPolicy в systemd](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#OOMPolicy=).
 
 ## 7. Резервная копия и обновление
 
