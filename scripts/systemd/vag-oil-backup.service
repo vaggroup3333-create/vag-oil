@@ -1,0 +1,17 @@
+[Unit]
+Description=Verified private VAG Oil backup
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/vag-oil-health/backup-local.py
+TimeoutStartSec=180
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/backups/vag-oil/automatic
+ReadWritePaths=/var/lib/vag-oil/state
+MemoryMax=256M

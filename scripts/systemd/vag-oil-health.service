@@ -1,0 +1,16 @@
+[Unit]
+Description=VAG Oil local readiness check
+After=vag-oil.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/vag-oil-health/health-watch.py
+TimeoutStartSec=90
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+StateDirectory=vag-oil-health
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/vag-oil-health

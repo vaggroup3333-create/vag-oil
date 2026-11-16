@@ -21,7 +21,5 @@ try {
 const port = process.env.VAG_OIL_PORT || '9088';
 if (!/^\d+$/.test(port) || Number(port) < 1024 || Number(port) > 65535) throw new Error('Invalid VAG_OIL_PORT');
 await import('./sites-env.mjs');
-const cli = fileURLToPath(new URL('../node_modules/wrangler/bin/wrangler.js', import.meta.url));
-process.argv = [process.execPath, cli, 'dev', '--config', resolve(root, 'dist/server/wrangler.json'),
-  '--local', '--persist-to', state, '--ip', '127.0.0.1', '--port', port, '--inspector-port', '0'];
-await import(new URL('../node_modules/wrangler/bin/wrangler.js', import.meta.url).href);
+const { serveWorker } = await import('./serve-worker.mjs');
+await serveWorker({ config: resolve(root, 'dist/server/wrangler.json'), state, port: Number(port) });
