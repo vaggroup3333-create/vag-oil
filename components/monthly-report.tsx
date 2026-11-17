@@ -1,15 +1,20 @@
 'use client';
-import {useMemo,useState} from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
 import {CalendarDays,ChevronLeft,ChevronRight,Download,Printer,FileSpreadsheet} from 'lucide-react';
 import type {State} from '../lib/ledger';
 import {localDay} from '../lib/reporting';
-import {monthlyReport,monthlyMoney,monthlyDate,monthlySections,monthlyCSV,monthlyHTML,monthlyExplanation,monthlySourceNote,shiftMonth} from '../lib/monthly-report';
+import {monthlyReport,monthlyMoney,monthlyQty,monthlyDate,monthlySections,monthlyCSV,monthlyHTML,monthlyExplanation,monthlySourceNote,shiftMonth} from '../lib/monthly-report';
 
 export function MonthlyReport({s,ready}:{s:State;ready:boolean}){
  const current=localDay(new Date().toISOString()).slice(0,7);
  const [month,setMonth]=useState(current),[message,setMessage]=useState('');
+ const [returnsOpen,setReturnsOpen]=useState(false);
+ const returnsPanel=useRef<HTMLElement>(null),returnsButton=useRef<HTMLButtonElement>(null);
  const report=useMemo(()=>ready?monthlyReport(s,month):null,[s,month,ready]);
- function choose(value:string){if(/^[1-9]\d{3}-(0[1-9]|1[0-2])$/.test(value)&&value<=current){setMonth(value);setMessage('')}}
+ function showReturns(){setReturnsOpen(true);if(returnsOpen)focusReturns()}
+ function focusReturns(){returnsPanel.current?.focus({preventScroll:true});returnsPanel.current?.scrollIntoView({block:'start',behavior:'auto'})}
+ useEffect(()=>{if(returnsOpen)focusReturns()},[returnsOpen]);
+ function choose(value:string){if(/^[1-9]\d{3}-(0[1-9]|1[0-2])$/.test(value)&&value<=current){setMonth(value);setMessage('');setReturnsOpen(false)}}
  function save(excel=false){
   if(!report)return;
   const url=URL.createObjectURL(new Blob([excel?monthlyCSV(report):monthlyHTML(report)],{type:excel?'text/csv;charset=utf-8':'text/html;charset=utf-8'}));
@@ -30,6 +35,8 @@ export function MonthlyReport({s,ready}:{s:State;ready:boolean}){
    <div className="monthlyPeriod"><h3>{report.title}</h3><span>{report.ongoing?'Текущий месяц · по '+monthlyDate(report.to):monthlyDate(report.from)+' — '+monthlyDate(report.to)}</span></div>
    {report.warnings.length>0&&<div className="monthlyWarnings">{report.warnings.map(w=><p key={w}>{w}</p>)}</div>}
    <div className="monthlyCards">{[['Выручка',report.period.revenue,'После возвратов','revenue'],['Себестоимость',report.period.cost,'Проданных товаров','cost'],['Расходы',report.period.expenses,'Расходы магазина','expenses'],['Прибыль',report.period.profit,'После расходов и корректировок',report.period.profit<0?'loss':'profit']].map(([label,value,hint,color])=><article key={String(label)} className={'monthlyCard '+color}><small>{label}</small><strong>{monthlyMoney(Number(value))}</strong><span>{hint}</span></article>)}</div>
+   <button ref={returnsButton} type="button" className="monthlyReturnsButton" aria-expanded={returnsOpen} aria-controls="monthly-returns" onClick={showReturns}><span><b>Возвраты клиентов</b><small>Уже вычтены из выручки</small></span><strong>{monthlyMoney(report.returns.total)}</strong><span className="monthlyReturnsLink">Какие товары вернули →</span></button>
+   {returnsOpen&&<section ref={returnsPanel} id="monthly-returns" className="monthlyReturns" tabIndex={-1} aria-labelledby="monthly-returns-title"><div className="monthlyReturnsHeading"><div><h3 id="monthly-returns-title">Возвращённые товары</h3><p>{monthlyDate(report.from)} — {monthlyDate(report.to)} · Чеков возврата: {report.returns.count}</p></div><button type="button" onClick={()=>{setReturnsOpen(false);returnsButton.current?.focus()}}>Скрыть возвраты</button></div><p>Сумма возвратов: <b>{monthlyMoney(report.returns.total)}</b>. Включает возврат денег и уменьшение долга клиента.</p>{report.returns.rows.length?<div className="monthlyReturnRows">{report.returns.rows.map(row=><article key={row.key} className="monthlyReturnRow"><div><b>{row.name}</b><strong>{monthlyMoney(row.amount)}</strong></div><p>{row.unit?monthlyQty({[row.unit]:row.qty}):'Количество не указано'} · {monthlyDate(row.date)} · Возврат № {row.number}{row.saleNumber&&' · Чек № '+row.saleNumber}</p><small>{row.party}</small></article>)}</div>:<p className="monthlyReturnsEmpty">В этом месяце возвратов клиентов нет.</p>}</section>}
    <div className="monthlyExport"><button type="button" className="green" onClick={()=>save()}><Download size={18}/> Сохранить отчёт</button><button type="button" onClick={print}><Printer size={18}/> Печать / PDF</button><button type="button" onClick={()=>save(true)}><FileSpreadsheet size={18}/> Excel</button></div>
    <p className="monthlyMessage" role="status">{message}</p>
    <p className="monthlyCaption">Чеков продажи: <b>{report.period.count}</b>. Прибыль включает продажи в долг. Остаток денег смотрите отдельно ниже.</p>
