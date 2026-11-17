@@ -31,7 +31,7 @@ const incomingCashLabels = new Map([
  ['earlier_sales', 'Погашение долгов клиентов за прошлые месяцы'],
  ['later_sales', 'Оплаты по чекам после отчётного периода'],
  ['receipt', 'Оплаты без связанного чека'],
- ['payout_reversal', 'Возврат денег после отмены оплаты поставщику'],
+ ['payout_reversal', 'Корректировка кассы при отмене оплаты поставщику'],
  ['purchase_return', 'Возвраты денег от поставщиков'],
  ['cash_in', 'Пополнения касс'],
  ['income', 'Прочие доходы'],
@@ -39,11 +39,11 @@ const incomingCashLabels = new Map([
 ]);
 
 const outgoingCashLabels = new Map([
- ['payout', 'Оплаты поставщикам'],
+ ['payout', 'Оплаты поставщикам (до учёта отмен)'],
  ['sale_return', 'Возвраты денег клиентам'],
  ['expense', 'Расходы магазина'],
  ['purchase_expense', 'Расходы по закупкам'],
- ['purchase_return_reversal', 'Отмены возвратов поставщикам'],
+ ['purchase_return_reversal', 'Корректировки кассы при отмене возвратов поставщикам'],
  ['cash_out', 'Снятия из касс'],
  ['other', 'Другие списания'],
 ]);
@@ -84,15 +84,20 @@ function reconcileMonthlyCash(s:State,payments:State['payments'],from:string,to:
  };
 }
 
+// Internal transfers are excluded from the combined cash flow across accounts.
+export function cashFlowTotals(rows:State['payments']){
+ const payments=rows.filter(p=>p.kind!=='transfer');
+ const incoming=round(payments.reduce((sum,p)=>sum+Math.max(0,p.amount),0));
+ const outgoing=round(payments.reduce((sum,p)=>sum+Math.max(0,-p.amount),0));
+ return {payments,incoming,outgoing};
+}
+
 export function monthlyReport(s:State,month:string,generatedAt=new Date().toISOString()){
  const range=monthRange(month),today=localDay(generatedAt);
  if(range.from>today)throw new Error('Этот месяц ещё не начался');
  const to=range.to>today?today:range.to,ongoing=month===today.slice(0,7);
  const period=totals(s,range.from,to),opening=balanceAt(s,range.previousDay),closing=balanceAt(s,to),returns=monthlyReturns(s,range.from,to);
- // Internal transfers are excluded from both flow columns, while the net cash balance remains identical.
- const payments=s.payments.filter(p=>inPeriod(p.date,range.from,to)&&p.kind!=='transfer');
- const incoming=round(payments.reduce((sum,p)=>sum+Math.max(0,p.amount),0));
- const outgoing=round(payments.reduce((sum,p)=>sum+Math.max(0,-p.amount),0));
+ const {payments,incoming,outgoing}=cashFlowTotals(s.payments.filter(p=>inPeriod(p.date,range.from,to)));
  const cashReconciliation=reconcileMonthlyCash(s,payments,range.from,to,period.revenue,incoming);
  const draftCount=s.entries.filter(e=>e.type==='purchase'&&e.status==='draft'&&localDay(e.date)<=to).length+(s.paidStockDrafts||[]).filter(d=>d.rows.length>0&&d.date.slice(0,10)<=to).length;
  const pendingIds=new Set((s.stockAdvances||[]).filter(a=>a.remaining>.000001).map(a=>a.saleId));
@@ -134,7 +139,7 @@ function monthlyExportSections(r:MonthlyReportData){
   monthlyReturnSection(r),
  ];
 }
-export const monthlyExplanation='Сумма возвратов клиентов уже вычтена из выручки; она включает возврат денег и уменьшение долга клиента. Возвраты относятся к месяцу их оформления, даже если продажа была раньше. Прибыль учитывает продажи в долг. Деньги в кассах показаны отдельно. Оплата поставщикам и возврат долга владельцу уменьшают кассу и долг, но не уменьшают прибыль повторно. Переводы между своими кассами не включены в поступления и списания.';
+export const monthlyExplanation='Сумма возвратов клиентов уже вычтена из выручки; она включает возврат денег и уменьшение долга клиента. Возвраты относятся к месяцу их оформления, даже если продажа была раньше. Прибыль учитывает продажи в долг. Деньги в кассах показаны отдельно. Оплата поставщикам и возврат долга владельцу уменьшают кассу и долг, но не уменьшают прибыль повторно. При отмене оплаты поставщику исходная оплата остаётся в списаниях, а отмена показывается в поступлениях как корректировка учёта. Переводы между своими кассами не включены в поступления и списания.';
 export const monthlySourceNote='Расчёт по датам документов и оплат, часовой пояс Душанбе (UTC+5). Сохранённый файл — копия на момент формирования; документы месяца не блокируются. Последующие исправления могут изменить отчёт в программе. Продажи по поставщикам не включают услуги; неопределённые источники показаны отдельно.';
 export function monthlyCSV(r:MonthlyReportData){
  const rows:(string|number)[][]=[['Месячный отчёт',r.title],['Магазин',r.shop],['Период',monthlyDate(r.from)+' — '+monthlyDate(r.to)],['Сформирован',r.generatedAt],['Чеков продажи',r.period.count],...r.warnings.map(w=>['Примечание',w])];

@@ -13,7 +13,7 @@ export type SupplierSaleRow={
  receiptTotal:number;reason:string;sources:string[];pending:boolean;
 };
 export type SupplierSalesGroup={id:string;name:string;currentDebt:number;rows:SupplierSaleRow[]};
-type Candidate={id:string;name:string;receipt:Entry;origin:StockOrigin};
+type Candidate={id:string;name:string;receipt:Entry;origin:StockOrigin;qty:number};
 
 // Allocate cents, rather than rounded unit costs, so source rows sum to the saved receipt.
 function splitMoney(total:number,weights:number[]){
@@ -32,26 +32,51 @@ function parts(line:Line):{origin:StockOrigin;qty:number}[]{
 }
 export function supplierSales(s:State,from='',to=''){
  const entries=new Map(s.entries.map(e=>[e.id,e])),products=new Map(s.products.map(p=>[p.id,p]));
+ const order=new Map(s.entries.map((e,index)=>[e.id,index]));
  const parties=new Map(s.parties.map(p=>[p.id,p])),services=new Set(s.services.map(p=>p.id));
  const incoming=new Map<string,Candidate[]>(),movement=new Map<string,number>();
+ const returnsByReceipt=new Map<string,Entry[]>(),returnReversals=new Map<string,Entry>();
  const groups=new Map<string,SupplierSalesGroup>();
  const addGroup=(id:string,name:string)=>{let g=groups.get(id);if(!g){g={id,name,currentDebt:0,rows:[]};groups.set(id,g)}return g};
  for(const p of s.parties.filter(p=>p.kind==='supplier'))addGroup(p.id,p.name);
  for(const e of s.entries.filter(posted)){
   for(const l of e.lines)if(l.kind!=='service')movement.set(l.id,q((movement.get(l.id)||0)+stockMovement(e,l.qty)));
+  if(e.type==='purchase_return'&&e.target){
+   const returns=returnsByReceipt.get(e.target)||[];returns.push(e);returnsByReceipt.set(e.target,returns);
+  }else if(e.type==='purchase_return_reversal'&&e.reversalOf){
+   returnReversals.set(e.reversalOf,e);
+  }
   if(!['purchase','opening_stock'].includes(e.type)||e.cancelledAt)continue;
   const id=e.type==='opening_stock'?OWN_STOCK:e.partyId||UNKNOWN_SUPPLIER;
   const name=id===OWN_STOCK?'Начальные остатки без поставщика':id===UNKNOWN_SUPPLIER?'Поставщик не определён':parties.get(id)?.name||e.party||'Поставщик';
   const group=addGroup(id,name);if(e.type==='purchase')group.currentDebt=round(group.currentDebt+debt(e));
   for(const line of e.lines.filter(l=>l.kind!=='service'&&l.qty>0)){
-   const list=incoming.get(line.id)||[];list.push({id,name,receipt:e,origin:receiptOrigin(e)});incoming.set(line.id,list);
+   const list=incoming.get(line.id)||[];list.push({id,name,receipt:e,origin:receiptOrigin(e),qty:line.qty});incoming.set(line.id,list);
   }
+ }
+ function fullyReturned(candidate:Candidate,productId:string,sale:Entry){
+  const saleTime=Date.parse(sale.date),saleOrder=order.get(sale.id)??-1;
+  const beforeSale=(e:Entry)=>{
+   const time=Date.parse(e.date);
+   return time<saleTime||(time===saleTime&&(order.get(e.id)??Infinity)<saleOrder);
+  };
+  let returned=0;
+  for(const entry of returnsByReceipt.get(candidate.receipt.id)||[]){
+   if(!beforeSale(entry))continue;
+   const reversal=returnReversals.get(entry.id);
+   if(reversal?.target===candidate.receipt.id){
+    if(beforeSale(reversal))continue;
+   }else if(entry.cancelledAt&&Date.parse(entry.cancelledAt)<=saleTime)continue;
+   for(const line of entry.lines)if(line.id===productId&&line.kind!=='service')returned+=line.qty;
+  }
+  return returned>=candidate.qty-.000001;
  }
  function resolve(sale:Entry|undefined,line:Line,origin:StockOrigin){
   if(!sale)return {id:UNKNOWN_SUPPLIER,name:'Поставщик не определён',reason:'Не найден исходный чек возврата.',sources:[]};
   const advances=(s.stockAdvances||[]).filter(a=>a.saleId===sale.id&&a.productId===line.id&&(origin==='unknown'||a.origin===origin));
   const linked=new Set(advances.flatMap(a=>a.settlements.map(x=>x.receiptId)));
-  let candidates=(incoming.get(line.id)||[]).filter(c=>Date.parse(c.receipt.date)<=Date.parse(sale.date)||linked.has(c.receipt.id));
+  let candidates=(incoming.get(line.id)||[]).filter(c=>linked.has(c.receipt.id)||
+   (Date.parse(c.receipt.date)<=Date.parse(sale.date)&&!fullyReturned(c,line.id,sale)));
   // The cashier records paid/credit origin, but does not record a supplier batch.
   if(origin!=='unknown')candidates=candidates.filter(c=>c.origin===origin||c.origin==='unknown');
   const unique=new Map(candidates.map(c=>[c.id,c.name]));

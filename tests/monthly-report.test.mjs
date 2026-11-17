@@ -57,10 +57,10 @@ try{
    incoming:[
     {label:'Оплаты по чекам этого месяца',amount:7320},
     {label:'Погашение долгов клиентов за прошлые месяцы',amount:250},
-    {label:'Возврат денег после отмены оплаты поставщику',amount:157.23},
+    {label:'Корректировка кассы при отмене оплаты поставщику',amount:157.23},
    ],
    outgoing:[
-    {label:'Оплаты поставщикам',amount:1457.23},
+    {label:'Оплаты поставщикам (до учёта отмен)',amount:1457.23},
     {label:'Возвраты денег клиентам',amount:120},
    ],
    currentSalesPaid:7320,currentSalesDifference:-80,otherReceipts:407.23,difference:327.23,
@@ -68,6 +68,7 @@ try{
   for(const saved of [M.monthlyHTML(report),M.monthlyCSV(report)]){
    assert(saved.includes('Сверка выручки и кассы'));
    assert(saved.includes('Погашение долгов клиентов за прошлые месяцы'));
+   assert(saved.includes('Корректировка кассы при отмене оплаты поставщику'));
    assert(saved.includes('Возвраты денег клиентам'));
    assert(saved.includes('327,23 с'));
   }

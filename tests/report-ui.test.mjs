@@ -8,7 +8,7 @@ const dir=await mkdtemp(join(tmpdir(),'vag-report-ui-'));
 try{
  const compile=source=>ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.React,jsxFactory:'__h',jsxFragmentFactory:'__Fragment'}}).outputText;
  const factory="const __h=(type,props,...children)=>({type,props:props||{},children});const __Fragment='fragment';\n";
- const names=['ledger','legacy-ledger','packaging','opening-stock','paid-stock','paid-stock-costs','paid-stock-draft','draft-stock','stock-advances','stock-sources','invoice-duplicates','reporting'];
+ const names=['ledger','legacy-ledger','packaging','opening-stock','paid-stock','paid-stock-costs','paid-stock-draft','draft-stock','stock-advances','stock-sources','invoice-duplicates','reporting','supplier-sales','csv-export','monthly-report'];
  for(const name of names){let source=compile(await readFile(new URL('../lib/'+name+'.ts',import.meta.url),'utf8'));source=source.replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");await writeFile(join(dir,name+'.mjs'),source)}
  await writeFile(join(dir,'hooks.mjs'),'export const useState=x=>[typeof x==="function"?x():x,()=>{}];');
  let extra=await readFile(new URL('../components/extra-reports.tsx',import.meta.url),'utf8');
@@ -37,12 +37,41 @@ try{
  const page=await readFile(new URL('../app/page.tsx',import.meta.url),'utf8');
  const body=page.slice(page.indexOf(' function renderReport(view:string){')).trimEnd().slice(0,-1);
  const docs=page.split('\n').find(l=>l.startsWith(' const docs='));
- const imports="import {inventoryValue,pendingStockCount} from './draft-stock.mjs';import {posted,debt,round,balance,totals} from './ledger.mjs';import {localDay,productSales,partyStatement,documentPayments,stockMovement} from './reporting.mjs';";
- const wrapper=imports+factory+"export function render(s,view,options={}){const from=options.from||'',to=options.to||'',query=options.query||'',partyFilter=options.partyFilter||'';const match=v=>v.toLowerCase().includes(query.toLowerCase());const inRange=d=>(!from||localDay(d)>=from)&&(!to||localDay(d)<=to);const products=s.products.filter(p=>match([p.name,p.code,p.article].join(' ')));const period=totals(s,from,to);const Table='table',X='icon',extraReportNames=[],setReportView=()=>{},setQuery=()=>{},setPartyFilter=()=>{},setFrom=()=>{},setTo=()=>{},open=()=>{},setDetailId=()=>{},go=()=>{},statusBadge=()=>'',docNames={sale:'Sale',purchase:'Purchase',sale_return:'Return'},money=n=>String(n),number=n=>String(n),date=d=>d;"+docs+body+"return renderReport(view)}";
+ const imports="import {inventoryValue,pendingStockCount} from './draft-stock.mjs';import {posted,debt,round,balance,totals} from './ledger.mjs';import {localDay,productSales,partyStatement,documentPayments,stockMovement} from './reporting.mjs';import * as monthly from './monthly-report.mjs';";
+ const wrapper=imports+factory+`export function render(s,view,options={}){
+  const from=options.from||'',to=options.to||'',query=options.query||'',partyFilter=options.partyFilter||'';
+  const match=v=>v.toLowerCase().includes(query.toLowerCase());
+  const inRange=d=>(!from||localDay(d)>=from)&&(!to||localDay(d)<=to);
+  const products=s.products.filter(p=>match([p.name,p.code,p.article].join(' ')));
+  const period=totals(s,from,to),{cashFlowTotals}=monthly;
+  const Table='table',X='icon',Receipt='icon',ChevronRight='icon';
+  const extraReportNames=[],cashierHistory=false,actorLabel=()=>'',setReportView=()=>{},setQuery=()=>{},setPartyFilter=()=>{},setFrom=()=>{},setTo=()=>{},open=()=>{},setDetailId=()=>{},go=()=>{},statusBadge=()=>'';
+  const docNames={sale:'Sale',purchase:'Purchase',sale_return:'Return'};
+  const money=n=>String(n),number=n=>String(n),date=d=>d;
+  ${docs}
+  ${body}
+  return renderReport(view)
+ }`;
  await writeFile(join(dir,'main.mjs'),compile(wrapper));
  const {render}=await import(pathToFileURL(join(dir,'main.mjs')));
  const views=['Продажа по чекам','Наш долг поставщикам','Должники','Выписка контрагентов','Выписка клиентов','Движение кассы','Остатки товаров','Движение товаров','Прибыль по дням','Прибыль по товарам','Продажа по товарам'];
  for(const view of views){validate(render(s,view));console.log('PASS render '+view)}
+ const sales=nodes(render(s,'Продажа по товарам',{query:'333'})).find(n=>n.type==='table');
+ assert.deepEqual(sales.props.heads,['Наименование','Продано','Возвращено','Количество за вычетом возвратов','Выручка после скидок и возвратов']);
+ assert.deepEqual(sales.props.rows[0].cells,['Test filter','2','1','1','25']);
+ const returnDay=nodes(render(s,'Продажа по товарам',{from:'2026-10-04',to:'2026-10-04'})).find(n=>n.type==='table');
+ assert.deepEqual(returnDay.props.rows[0].cells,['Test filter','0','1','-1','-25']);
+ const grossProfit=nodes(render(s,'Прибыль по товарам')).find(n=>n.type==='table');
+ assert.ok(grossProfit.props.heads.includes('Валовая прибыль'));
+ assert.equal(grossProfit.props.rows[0].cells[4].children[0],'15');
+ const filteredChecks=nodes(render(s,'Продажа по чекам',{query:'не найдено'}));
+ assert.equal(filteredChecks.find(n=>n.type==='table').props.rows.length,0);
+ assert.match(filteredChecks.find(n=>n.type==='small'&&n.children[0]?.startsWith('Поиск фильтрует')).children[0],/Итоги рассчитаны по всем продажам и возвратам/);
+ const withTransfer=L.apply(s,{type:'transfer',account:'cash',to:'city',total:7},{now:'2026-10-05T09:00:00Z'});
+ const cashMovement=nodes(render(withTransfer,'Движение кассы'));
+ const cashSummary=cashMovement.find(n=>n.props?.className==='summarystrip');
+ assert.deepEqual(nodes(cashSummary).filter(n=>n.type==='b').map(n=>n.children[0]),['0','50','25','25']);
+ assert.equal(cashMovement.find(n=>n.type==='table').props.rows.length,5);
  const movement=nodes(render(s,'Движение товаров',{query:'333'})).find(n=>n.type==='table');
  assert.equal(movement.props.rows.length,3);
  const statement=nodes(render(s,'Выписка клиентов',{partyFilter:'client'})).find(n=>n.type==='table');
