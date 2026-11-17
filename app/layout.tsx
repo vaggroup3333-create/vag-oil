@@ -1,3 +1,4 @@
+import './monthly-report.css';
 import './globals.css';
 import './product-photo.css';
 import './supplier-sales.css';

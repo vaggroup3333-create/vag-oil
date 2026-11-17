@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+import {stripTypeScriptTypes} from 'node:module';
+import {readFile,writeFile,mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
+const dir=await mkdtemp(join(tmpdir(),'vag-monthly-'));let count=0;
+try{
+ const seen=new Set();async function load(name){if(seen.has(name))return;seen.add(name);const code=await readFile(new URL('../lib/'+name+'.ts',import.meta.url),'utf8');for(const m of code.matchAll(/from ['"]\.\/([^'"]+)['"]/g))await load(m[1]);await writeFile(join(dir,name+'.mjs'),stripTypeScriptTypes(code).replace(/from ['"]\.\/([^'"]+)['"]/g,"from './$1.mjs'"))}
+ await load('monthly-report');const M=await import(pathToFileURL(join(dir,'monthly-report.mjs'))),L=await import(pathToFileURL(join(dir,'ledger.mjs')));
+ const check=(name,fn)=>{fn();count++;console.log('PASS '+name)};
+ check('month boundaries, leap years, December and validation',()=>{assert.equal(M.monthRange('2028-02').to,'2028-02-29');assert.equal(M.monthRange('2027-02').to,'2027-02-28');assert.equal(M.monthRange('2026-01').previousDay,'2025-12-31');assert.equal(M.shiftMonth('2026-12',1),'2027-01');assert.throws(()=>M.monthRange('2026-13'));assert.throws(()=>M.monthRange('26-11'))});
+ let s=L.initial(false);s=L.apply(s,{type:'product',name:'Filter',article:'TEST',category:'Фильтры',unit:'шт',price:25},{id:'filter'});s=L.apply(s,{type:'party',name:'Owner supplier',kind:'supplier'},{id:'owner'});s=L.apply(s,{type:'party',name:'Client',kind:'client'},{id:'client'});
+ const act=(a,date)=>{s=L.apply(s,a,{now:date,role:'director',actor:'test'})};
+ act({type:'purchase',partyId:'owner',lines:[{id:'filter',qty:20,price:10}],paid:0,account:'cash'},'2026-10-01T10:00:00Z');
+ act({type:'sale',partyId:'client',lines:[{id:'filter',qty:4,price:25}],paid:50,account:'cash'},'2026-10-31T18:59:59Z');const octoberSale=s.entries.at(-1).id;
+ act({type:'sale',partyId:'client',lines:[{id:'filter',qty:2,price:25}],paid:50,account:'cash'},'2026-10-31T19:00:00Z');
+ act({type:'payment',target:octoberSale,amount:50,account:'city'},'2026-11-02T10:00:00Z');
+ act({type:'expense',party:'Rent',total:5,account:'cash'},'2026-11-03T10:00:00Z');
+ act({type:'payment_party',partyId:'owner',amount:20,account:'cash'},'2026-11-03T10:00:00Z');
+ act({type:'transfer',account:'cash',to:'city',total:10},'2026-11-03T10:00:00Z');
+ act({type:'return',target:octoberSale,lines:[{id:'filter',qty:1}],account:'city'},'2026-11-04T10:00:00Z');
+ const before=JSON.stringify(s),oct=M.monthlyReport(s,'2026-10','2026-11-17T10:00:00Z'),nov=M.monthlyReport(s,'2026-11','2026-11-17T10:00:00Z');
+ check('local midnight, old customer debt and month-end cash',()=>{assert.equal(oct.period.count,1);assert.equal(oct.period.revenue,100);assert.equal(oct.period.profit,60);assert.equal(oct.closing.customerDebt,50);assert.equal(oct.closing.cash,50);assert.equal(oct.closing.supplierDebt,200);assert.equal(oct.closing.stock,160);assert.equal(oct.ongoing,false)});
+ check('later repayment excluded from revenue, owner repayment excluded from expenses',()=>{assert.equal(nov.period.revenue,25);assert.equal(nov.period.cost,10);assert.equal(nov.period.expenses,5);assert.equal(nov.period.profit,10);assert.equal(nov.cash.opening,50);assert.equal(nov.cash.incoming,100);assert.equal(nov.cash.outgoing,50);assert.equal(nov.cash.closing,100);assert.equal(nov.closing.supplierDebt,180);assert.equal(nov.closing.customerDebt,0)});
+ check('current month uses today and remains provisional',()=>{assert.equal(nov.to,'2026-11-17');assert(nov.warnings.some(w=>w.includes('ещё не закончен')));assert.throws(()=>M.monthlyReport(s,'2026-12','2026-11-17T10:00:00Z'))});
+ check('supplier sales keep units, returns and debt independent',()=>{const row=nov.suppliers.find(g=>g.id==='owner');assert.equal(row.net['шт'],1);assert.equal(row.cost,10);assert.equal(row.revenue,25);assert.equal(nov.debts.find(p=>p.id==='owner').opening,200);assert.equal(nov.debts.find(p=>p.id==='owner').closing,180)});
+ check('no data mutation and cash equation',()=>{assert.equal(JSON.stringify(s),before);assert.equal(nov.cash.opening+nov.cash.incoming-nov.cash.outgoing,nov.cash.closing)});
+ check('all exports contain same amounts, and hostile names stay inert',()=>{const t=structuredClone(nov);t.shop='<script>alert(1)</script>';t.suppliers[0].name='=HYPERLINK("x")';const html=M.monthlyHTML(t),csv=M.monthlyCSV(t);assert(!html.includes('<script>'));assert(html.includes('&lt;script&gt;'));assert(html.includes('180,00 с'));assert(csv.includes("'=HYPERLINK"));assert(csv.includes('180,00 с'));assert(html.includes('документы месяца не блокируются'))});
+ check('empty past month retains balances and has zero activity',()=>{const r=M.monthlyReport(s,'2026-12','2027-01-01T10:00:00Z');assert.equal(r.period.revenue,0);assert.equal(r.period.profit,0);assert.equal(r.cash.opening,r.cash.closing);assert.equal(r.warnings.length,0)});
+ check('drafts and unresolved sales are visibly preliminary',()=>{const t=structuredClone(s);t.entries.push({...t.entries[0],id:'draft',status:'draft',date:'2026-11-12T10:00:00Z'});t.entries.find(e=>e.type==='sale'&&e.id!==octoberSale).costPending=true;const r=M.monthlyReport(t,'2026-11','2026-12-01T10:00:00Z');assert.equal(r.draftCount,1);assert.equal(r.pendingCount,1);assert.equal(r.period.revenue,nov.period.revenue);assert.equal(r.warnings.length,2)});
+ console.log(count+' monthly report cases passed');
+}finally{await rm(dir,{recursive:true,force:true})}
