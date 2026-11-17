@@ -32,5 +32,60 @@ try{
  check('returns use their own month and reconcile with net revenue',()=>{assert.equal(oct.returns.total,0);assert.equal(nov.returns.total,25);assert.equal(nov.returns.count,1);assert.equal(nov.returns.rows[0].qty,1);assert.equal(nov.returns.rows[0].name,'Filter');assert.equal(nov.returns.rows[0].date,'2026-11-04');assert.equal(nov.period.grossRevenue-nov.returns.total,nov.period.revenue);assert.equal(nov.returns.rows[0].saleNumber,s.entries.find(e=>e.id===octoberSale).number)});
  check('return lines reconcile discounted totals to the cent and keep historical names',()=>{const t=structuredClone(s),ret=t.entries.find(e=>e.type==='sale_return');t.products=[];t.entries=[{...ret,id:'multi',date:'2026-10-31T19:00:00Z',total:10.01,lines:[{...ret.lines[0],name:'Original name',qty:1,price:3},{...ret.lines[0],id:'second',name:'Second product',unit:'л',qty:1.5,price:2}]}];t.entries.push({...t.entries[0],id:'cancelled',status:'cancelled',total:900},{...t.entries[0],id:'draft',status:'draft',total:800},{...t.entries[0],id:'outside',date:'2026-10-31T18:59:59Z',total:700});const r=M.monthlyReturns(t,'2026-11-01','2026-11-30');assert.equal(r.count,1);assert.equal(r.total,10.01);assert.equal(L.round(r.rows.reduce((n,row)=>n+row.amount,0)),10.01);assert.equal(r.rows[0].name,'Original name');assert.equal(r.rows[1].qty,1.5);assert.equal(r.rows[1].unit,'л')});
  check('return details appear in all saved formats with escaping',()=>{const r=structuredClone(nov);r.returns.rows[0].name='<img src=x onerror=alert(1)>';const html=M.monthlyHTML(r),csv=M.monthlyCSV(r);assert(html.includes('Возвращённые товары'));assert(!html.includes('<img'));assert(html.includes('&lt;img'));assert(csv.includes('Возвращённые товары'));assert.equal(M.monthlyReturnSection(nov).rows[0][6],'25,00 с')});
+ check('cash reconciliation separates month sales, old debt, supplier reversal and cash refunds',()=>{
+  let t=L.initial(false);
+  const post=(action,now,id)=>{t=L.apply(t,action,{now,id,role:'director',actor:'test'})};
+  const product='reconcile-product',customer='reconcile-client',supplier='reconcile-supplier';
+  post({type:'product',name:'Test filter',category:'Фильтры',unit:'шт',price:120},'2026-10-01T10:00:00Z',product);
+  post({type:'party',name:'Supplier',kind:'supplier'},'2026-10-01T10:00:00Z',supplier);
+  post({type:'party',name:'Customer',kind:'client'},'2026-10-01T10:00:00Z',customer);
+  post({type:'purchase',partyId:supplier,lines:[{id:product,qty:6,price:500}],paid:0,account:'cash'},'2026-10-01T10:00:00Z');
+  post({type:'sale',partyId:customer,lines:[{id:product,qty:1,price:1250}],paid:1000,account:'cash'},'2026-10-31T18:59:59Z');
+  post({type:'sale',partyId:customer,lines:[{id:product,qty:1,price:7400}],paid:7200,account:'cash'},'2026-10-31T19:00:00Z');
+  post({type:'sale',partyId:customer,lines:[{id:product,qty:1,price:120}],paid:120,account:'cash'},'2026-11-01T10:00:00Z','reconcile-returned-sale');
+  post({type:'payment_party',partyId:customer,amount:250,account:'city'},'2026-11-02T10:00:00Z');
+  post({type:'payment_party',partyId:supplier,amount:1300,account:'cash'},'2026-11-03T10:00:00Z');
+  post({type:'payment_party',partyId:supplier,amount:157.23,account:'cash'},'2026-11-04T10:00:00Z');
+  post({type:'cancel_supplier_payment',id:t.payments.at(-1).id,amount:157.23,reason:'Duplicate posted payment'},'2026-11-05T10:00:00Z');
+  post({type:'return',target:'reconcile-returned-sale',lines:[{id:product,qty:1}],account:'cash'},'2026-11-06T10:00:00Z');
+  post({type:'transfer',account:'cash',to:'city',total:10},'2026-11-08T10:00:00Z');
+
+  const report=M.monthlyReport(t,'2026-11','2026-11-12T10:00:00Z');
+  assert.equal(report.period.revenue,7400);
+  assert.deepEqual(report.cash,{opening:1000,incoming:7727.23,outgoing:1577.23,closing:7150});
+  assert.deepEqual(report.cashReconciliation,{
+   incoming:[
+    {label:'Оплаты по чекам этого месяца',amount:7320},
+    {label:'Погашение долгов клиентов за прошлые месяцы',amount:250},
+    {label:'Возврат денег после отмены оплаты поставщику',amount:157.23},
+   ],
+   outgoing:[
+    {label:'Оплаты поставщикам',amount:1457.23},
+    {label:'Возвраты денег клиентам',amount:120},
+   ],
+   currentSalesPaid:7320,currentSalesDifference:-80,otherReceipts:407.23,difference:327.23,
+  });
+  for(const saved of [M.monthlyHTML(report),M.monthlyCSV(report)]){
+   assert(saved.includes('Сверка выручки и кассы'));
+   assert(saved.includes('Погашение долгов клиентов за прошлые месяцы'));
+   assert(saved.includes('Возвраты денег клиентам'));
+   assert(saved.includes('327,23 с'));
+  }
+ });
+ check('unknown or unlinked movements remain visible in the cash totals',()=>{
+  const t=L.initial(false),date='2026-11-01T10:00:00Z';
+  const payment={date,account:'cash',party:'Test',note:''};
+  t.payments.push(
+   {...payment,id:'legacy',kind:'receipt',target:'missing-sale',amount:.01},
+   {...payment,id:'unknown-in',kind:'test-import',amount:.02},
+   {...payment,id:'unknown-out',kind:'test-import',amount:-.01},
+  );
+  const report=M.monthlyReport(t,'2026-11','2026-12-01T10:00:00Z'),cash=report.cashReconciliation;
+  assert.deepEqual(cash.incoming,[{label:'Оплаты без связанного чека',amount:.01},{label:'Другие поступления',amount:.02}]);
+  assert.deepEqual(cash.outgoing,[{label:'Другие списания',amount:.01}]);
+  assert.equal(cash.currentSalesDifference,0);
+  assert.equal(cash.otherReceipts,.03);
+  assert.equal(cash.difference,.03);
+ });
  console.log(count+' monthly report cases passed');
 }finally{await rm(dir,{recursive:true,force:true})}

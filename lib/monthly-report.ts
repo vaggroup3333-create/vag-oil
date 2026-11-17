@@ -26,6 +26,64 @@ export function monthlyReturns(s:State,from:string,to:string){
  return {total:round(documents.reduce((sum,e)=>sum+e.total,0)),count:documents.length,rows};
 }
 
+const incomingCashLabels = new Map([
+ ['period_sales', 'Оплаты по чекам этого месяца'],
+ ['earlier_sales', 'Погашение долгов клиентов за прошлые месяцы'],
+ ['later_sales', 'Оплаты по чекам после отчётного периода'],
+ ['receipt', 'Оплаты без связанного чека'],
+ ['payout_reversal', 'Возврат денег после отмены оплаты поставщику'],
+ ['purchase_return', 'Возвраты денег от поставщиков'],
+ ['cash_in', 'Пополнения касс'],
+ ['income', 'Прочие доходы'],
+ ['other', 'Другие поступления'],
+]);
+
+const outgoingCashLabels = new Map([
+ ['payout', 'Оплаты поставщикам'],
+ ['sale_return', 'Возвраты денег клиентам'],
+ ['expense', 'Расходы магазина'],
+ ['purchase_expense', 'Расходы по закупкам'],
+ ['purchase_return_reversal', 'Отмены возвратов поставщикам'],
+ ['cash_out', 'Снятия из касс'],
+ ['other', 'Другие списания'],
+]);
+
+function cashBreakdownRows(labels:Map<string,string>, totals:Map<string,number>){
+ return Array.from(labels, ([kind,label])=>({label,amount:round(totals.get(kind)??0)})).filter(row=>row.amount!==0);
+}
+
+function reconcileMonthlyCash(s:State,payments:State['payments'],from:string,to:string,revenue:number,incomingTotal:number){
+ const salesDays = new Map(s.entries.filter(e=>posted(e)&&e.type==='sale').map(e=>[e.id,localDay(e.date)]));
+ const receipts = new Map<string,number>();
+ const paymentsOut = new Map<string,number>();
+
+ for(const payment of payments){
+  if(payment.amount===0)continue;
+  const positive = payment.amount>0;
+  const labels = positive ? incomingCashLabels : outgoingCashLabels;
+  const sums = positive ? receipts : paymentsOut;
+  const saleDay = positive&&payment.kind==='receipt'&&payment.target ? salesDays.get(payment.target) : undefined;
+  let kind = payment.kind;
+  if(saleDay){
+   if(saleDay<from)kind='earlier_sales';
+   else if(saleDay>to)kind='later_sales';
+   else kind='period_sales';
+  }
+  if(!labels.has(kind))kind='other';
+  sums.set(kind,(sums.get(kind)??0)+Math.abs(payment.amount));
+ }
+
+ const currentSalesPaid = round(receipts.get('period_sales')??0);
+ return {
+  incoming:cashBreakdownRows(incomingCashLabels,receipts),
+  outgoing:cashBreakdownRows(outgoingCashLabels,paymentsOut),
+  currentSalesPaid,
+  currentSalesDifference:round(currentSalesPaid-revenue),
+  otherReceipts:round(incomingTotal-currentSalesPaid),
+  difference:round(incomingTotal-revenue),
+ };
+}
+
 export function monthlyReport(s:State,month:string,generatedAt=new Date().toISOString()){
  const range=monthRange(month),today=localDay(generatedAt);
  if(range.from>today)throw new Error('Этот месяц ещё не начался');
@@ -35,6 +93,7 @@ export function monthlyReport(s:State,month:string,generatedAt=new Date().toISOS
  const payments=s.payments.filter(p=>inPeriod(p.date,range.from,to)&&p.kind!=='transfer');
  const incoming=round(payments.reduce((sum,p)=>sum+Math.max(0,p.amount),0));
  const outgoing=round(payments.reduce((sum,p)=>sum+Math.max(0,-p.amount),0));
+ const cashReconciliation=reconcileMonthlyCash(s,payments,range.from,to,period.revenue,incoming);
  const draftCount=s.entries.filter(e=>e.type==='purchase'&&e.status==='draft'&&localDay(e.date)<=to).length+(s.paidStockDrafts||[]).filter(d=>d.rows.length>0&&d.date.slice(0,10)<=to).length;
  const pendingIds=new Set((s.stockAdvances||[]).filter(a=>a.remaining>.000001).map(a=>a.saleId));
  const pendingCount=s.entries.filter(e=>posted(e)&&inPeriod(e.date,range.from,to)&&(e.costPending||pendingIds.has(e.id))).length;
@@ -44,7 +103,7 @@ export function monthlyReport(s:State,month:string,generatedAt=new Date().toISOS
   return {id:p.id,name:p.name,kind:p.kind,opening:st.opening,closing:st.closing};
  }).filter(p=>p.opening!==0||p.closing!==0);
  const warnings=[...(ongoing?['Месяц ещё не закончен. Показаны операции по '+monthlyDate(to)+'.']:[]),...(pendingCount?['Продажи до прихода: '+pendingCount+'. Себестоимость и прибыль предварительные. Проведите соответствующие накладные.']:[]),...(draftCount?['Непроведённые накладные с датой до конца периода: '+draftCount+'. Они не включены в отчёт. Проверьте фактически полученные товары.']:[])];
- return {month,title:monthName(month),shop:s.settings.name,generatedAt,from:range.from,to,monthEnd:range.to,ongoing,period,returns,opening,closing,cash:{opening:opening.cash,incoming,outgoing,closing:closing.cash},suppliers,debts,draftCount,pendingCount,warnings};
+ return {month,title:monthName(month),shop:s.settings.name,generatedAt,from:range.from,to,monthEnd:range.to,ongoing,period,returns,opening,closing,cash:{opening:opening.cash,incoming,outgoing,closing:closing.cash},cashReconciliation,suppliers,debts,draftCount,pendingCount,warnings};
 }
 export type MonthlyReportData=ReturnType<typeof monthlyReport>;
 export function monthlySections(r:MonthlyReportData){return [
@@ -56,16 +115,35 @@ export function monthlySections(r:MonthlyReportData){return [
  {title:'Кто должен магазину',heads:['Клиент','На начало','На конец'],rows:r.debts.filter(p=>p.kind==='client').map(p=>[p.name,monthlyMoney(p.opening),monthlyMoney(p.closing)])},
  ];}
 export function monthlyReturnSection(r:MonthlyReportData){return {title:'Возвращённые товары',heads:['Дата возврата','Возврат №','Исходный чек №','Клиент','Наименование','Количество','Сумма возврата'],rows:r.returns.rows.map(row=>[monthlyDate(row.date),row.number,row.saleNumber||'—',row.party,row.name,row.unit?monthlyQty({[row.unit]:row.qty}):'—',monthlyMoney(row.amount)])};}
+function monthlyExportSections(r:MonthlyReportData){
+ const [result,cash,...remaining] = monthlySections(r);
+ const reconciliation = r.cashReconciliation;
+ return [
+  result,
+  cash,
+  {title:'Из чего сложились поступления',heads:['Операция','Сумма'],rows:reconciliation.incoming.map(row=>[row.label,monthlyMoney(row.amount)])},
+  {title:'Из чего сложились списания',heads:['Операция','Сумма'],rows:reconciliation.outgoing.map(row=>[row.label,monthlyMoney(row.amount)])},
+  {title:'Сверка выручки и кассы',heads:['Показатель','Сумма'],rows:[
+   ['Выручка после возвратов',monthlyMoney(r.period.revenue)],
+   ['Оплаты по чекам этого месяца',monthlyMoney(reconciliation.currentSalesPaid)],
+   ['Оплаты по чекам этого месяца минус выручка',monthlyMoney(reconciliation.currentSalesDifference)],
+   ['Остальные поступления',monthlyMoney(reconciliation.otherReceipts)],
+   ['Все поступления минус выручка',monthlyMoney(reconciliation.difference)],
+  ]},
+  ...remaining,
+  monthlyReturnSection(r),
+ ];
+}
 export const monthlyExplanation='Сумма возвратов клиентов уже вычтена из выручки; она включает возврат денег и уменьшение долга клиента. Возвраты относятся к месяцу их оформления, даже если продажа была раньше. Прибыль учитывает продажи в долг. Деньги в кассах показаны отдельно. Оплата поставщикам и возврат долга владельцу уменьшают кассу и долг, но не уменьшают прибыль повторно. Переводы между своими кассами не включены в поступления и списания.';
 export const monthlySourceNote='Расчёт по датам документов и оплат, часовой пояс Душанбе (UTC+5). Сохранённый файл — копия на момент формирования; документы месяца не блокируются. Последующие исправления могут изменить отчёт в программе. Продажи по поставщикам не включают услуги; неопределённые источники показаны отдельно.';
 export function monthlyCSV(r:MonthlyReportData){
  const rows:(string|number)[][]=[['Месячный отчёт',r.title],['Магазин',r.shop],['Период',monthlyDate(r.from)+' — '+monthlyDate(r.to)],['Сформирован',r.generatedAt],['Чеков продажи',r.period.count],...r.warnings.map(w=>['Примечание',w])];
- for(const section of [...monthlySections(r),monthlyReturnSection(r)])rows.push([], [section.title],section.heads,...section.rows);
+ for(const section of monthlyExportSections(r))rows.push([], [section.title],section.heads,...section.rows);
  rows.push([], [monthlyExplanation],[monthlySourceNote]);
  return '\uFEFF'+rows.map(row=>row.map(csvCell).join(';')).join('\r\n');
 }
 const escapeHTML=(v:unknown)=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 export function monthlyHTML(r:MonthlyReportData){
  const h=escapeHTML;
- return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+h(r.shop)+' — '+h(r.title)+'</title><style>body{font:16px/1.5 system-ui,sans-serif;color:#203d47;background:#f2f6f8;margin:0;padding:24px}main{max-width:980px;margin:auto;background:white;padding:28px;border-radius:16px}h1{margin:0;color:#15565c}h2{font-size:20px;margin-top:28px}p{color:#536773}.warn{background:#fff3d6;padding:12px;border-radius:8px}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:10px;border:1px solid #dce5eb;overflow-wrap:anywhere}th{background:#edf5f6}td:not(:first-child){font-variant-numeric:tabular-nums}section{overflow-x:auto}small{color:#566a74}@media(max-width:500px){body{padding:6px}main{padding:12px}th,td{padding:6px;font-size:12px}}@media print{body{background:white;padding:0}main{padding:0}thead{display:table-header-group}tr{break-inside:avoid}h2{break-after:avoid}section{overflow:visible}@page{size:A4;margin:12mm}}</style></head><body><main><h1>Месячный отчёт · '+h(r.title)+'</h1><p>'+h(r.shop)+' · '+h(monthlyDate(r.from))+' — '+h(monthlyDate(r.to))+'</p><p>Сформирован: '+h(new Date(r.generatedAt).toLocaleString('ru-RU',{timeZone:'Asia/Dushanbe'}))+' (Душанбе). Чеков продажи: '+r.period.count+'.</p>'+r.warnings.map(w=>'<p class="warn">'+h(w)+'</p>').join('')+[...monthlySections(r),monthlyReturnSection(r)].map(section=>'<section><h2>'+h(section.title)+'</h2><table><thead><tr>'+section.heads.map(c=>'<th>'+h(c)+'</th>').join('')+'</tr></thead><tbody>'+(section.rows.length?section.rows.map(row=>'<tr>'+row.map(c=>'<td>'+h(c)+'</td>').join('')+'</tr>').join(''):'<tr><td colspan="'+section.heads.length+'">Нет данных за период</td></tr>')+'</tbody></table></section>').join('')+'<p>'+h(monthlyExplanation)+'</p><small>'+h(monthlySourceNote)+'</small></main></body></html>';
+ return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+h(r.shop)+' — '+h(r.title)+'</title><style>body{font:16px/1.5 system-ui,sans-serif;color:#203d47;background:#f2f6f8;margin:0;padding:24px}main{max-width:980px;margin:auto;background:white;padding:28px;border-radius:16px}h1{margin:0;color:#15565c}h2{font-size:20px;margin-top:28px}p{color:#536773}.warn{background:#fff3d6;padding:12px;border-radius:8px}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:10px;border:1px solid #dce5eb;overflow-wrap:anywhere}th{background:#edf5f6}td:not(:first-child){font-variant-numeric:tabular-nums}section{overflow-x:auto}small{color:#566a74}@media(max-width:500px){body{padding:6px}main{padding:12px}th,td{padding:6px;font-size:12px}}@media print{body{background:white;padding:0}main{padding:0}thead{display:table-header-group}tr{break-inside:avoid}h2{break-after:avoid}section{overflow:visible}@page{size:A4;margin:12mm}}</style></head><body><main><h1>Месячный отчёт · '+h(r.title)+'</h1><p>'+h(r.shop)+' · '+h(monthlyDate(r.from))+' — '+h(monthlyDate(r.to))+'</p><p>Сформирован: '+h(new Date(r.generatedAt).toLocaleString('ru-RU',{timeZone:'Asia/Dushanbe'}))+' (Душанбе). Чеков продажи: '+r.period.count+'.</p>'+r.warnings.map(w=>'<p class="warn">'+h(w)+'</p>').join('')+monthlyExportSections(r).map(section=>'<section><h2>'+h(section.title)+'</h2><table><thead><tr>'+section.heads.map(c=>'<th>'+h(c)+'</th>').join('')+'</tr></thead><tbody>'+(section.rows.length?section.rows.map(row=>'<tr>'+row.map(c=>'<td>'+h(c)+'</td>').join('')+'</tr>').join(''):'<tr><td colspan="'+section.heads.length+'">Нет данных за период</td></tr>')+'</tbody></table></section>').join('')+'<p>'+h(monthlyExplanation)+'</p><small>'+h(monthlySourceNote)+'</small></main></body></html>';
 }

@@ -4,6 +4,43 @@ import {CalendarDays,ChevronLeft,ChevronRight,Download,Printer,FileSpreadsheet} 
 import type {State} from '../lib/ledger';
 import {localDay} from '../lib/reporting';
 import {monthlyReport,monthlyMoney,monthlyQty,monthlyDate,monthlySections,monthlyCSV,monthlyHTML,monthlyExplanation,monthlySourceNote,shiftMonth} from '../lib/monthly-report';
+import type {MonthlyReportData} from '../lib/monthly-report';
+
+function CashMovement({title,total,rows,empty,kind}:{
+ title:string;
+ total:number;
+ rows:{label:string,amount:number}[];
+ empty:string;
+ kind:'incoming'|'outgoing';
+}){
+ return <div className={'monthlyCashMovement '+kind}>
+  <h4><span>{title}</span><strong>{monthlyMoney(total)}</strong></h4>
+  {rows.length>0?<dl>{rows.map(row=><div className="monthlyCashLine" key={row.label}>
+   <dt>{row.label}</dt><dd>{monthlyMoney(row.amount)}</dd>
+  </div>)}</dl>:<p>{empty}</p>}
+ </div>;
+}
+
+const signedMoney=(amount:number)=>(amount>0?'+':'')+monthlyMoney(amount);
+
+function CashReconciliation({report}:{report:MonthlyReportData}){
+ const {incoming,outgoing,currentSalesPaid,currentSalesDifference,otherReceipts,difference}=report.cashReconciliation;
+ return <section className="monthlyCashReconciliation" aria-labelledby="monthly-cash-reconciliation-title">
+  <h3 id="monthly-cash-reconciliation-title">Сверка выручки и кассы</h3>
+  <div className="monthlyCashMovements">
+   <CashMovement title="Поступило" total={report.cash.incoming} rows={incoming} empty="Поступлений за период нет." kind="incoming"/>
+   <CashMovement title="Списано" total={report.cash.outgoing} rows={outgoing} empty="Списаний за период нет." kind="outgoing"/>
+  </div>
+  <div className="monthlyCashBridge">
+   <p>По чекам этого месяца поступило <b>{monthlyMoney(currentSalesPaid)}</b>. Выручка после возвратов составила <b>{monthlyMoney(report.period.revenue)}</b>.</p>
+   <dl>
+    <div className="monthlyCashLine"><dt>Оплаты по чекам месяца минус выручка</dt><dd>{signedMoney(currentSalesDifference)}</dd></div>
+    <div className="monthlyCashLine"><dt>Остальные поступления</dt><dd>{signedMoney(otherReceipts)}</dd></div>
+    <div className="monthlyCashLine monthlyCashDifference"><dt>Разница между поступлениями и выручкой</dt><dd>{signedMoney(difference)}</dd></div>
+   </dl>
+  </div>
+ </section>;
+}
 
 export function MonthlyReport({s,ready}:{s:State;ready:boolean}){
  const current=localDay(new Date().toISOString()).slice(0,7);
@@ -40,7 +77,10 @@ export function MonthlyReport({s,ready}:{s:State;ready:boolean}){
    <div className="monthlyExport"><button type="button" className="green" onClick={()=>save()}><Download size={18}/> Сохранить отчёт</button><button type="button" onClick={print}><Printer size={18}/> Печать / PDF</button><button type="button" onClick={()=>save(true)}><FileSpreadsheet size={18}/> Excel</button></div>
    <p className="monthlyMessage" role="status">{message}</p>
    <p className="monthlyCaption">Чеков продажи: <b>{report.period.count}</b>. Прибыль включает продажи в долг. Остаток денег смотрите отдельно ниже.</p>
-   <div className="monthlyTables">{sections.map((section,index)=>{const content=<div className="monthlyTableScroll"><table><thead><tr>{section.heads.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{section.rows.length?section.rows.map((row,i)=><tr key={i}>{row.map((cell,j)=><td key={j}>{cell}</td>)}</tr>):<tr><td colSpan={section.heads.length}>Нет данных за период</td></tr>}</tbody></table></div>;return index===0?<details key={section.title}><summary>Из чего складывается прибыль</summary>{content}</details>:<section key={section.title}><h3>{section.title}</h3>{content}{index===1&&<small>Без переводов между своими кассами. На начало + поступило − списано = на конец.</small>}{index===3&&<small>Себестоимость проданного помогает оценить расчёты с поставщиками. Она не равна полученным деньгам или сумме к оплате.</small>}</section>})}</div>
+   <div className="monthlyTables">{sections.map((section,index)=>{const content=<div className="monthlyTableScroll"><table><thead><tr>{section.heads.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{section.rows.length?section.rows.map((row,i)=><tr key={i}>{row.map((cell,j)=><td key={j}>{cell}</td>)}</tr>):<tr><td colSpan={section.heads.length}>Нет данных за период</td></tr>}</tbody></table></div>;return index===0?<details key={section.title}><summary>Из чего складывается прибыль</summary>{content}</details>:<section key={section.title}><h3>{section.title}</h3>{content}{index===1&&<>
+    <small>Без переводов между своими кассами. На начало + поступило − списано = на конец.</small>
+    <CashReconciliation report={report}/>
+   </>}{index===3&&<small>Себестоимость проданного помогает оценить расчёты с поставщиками. Она не равна полученным деньгам или сумме к оплате.</small>}</section>})}</div>
    <details className="monthlyHelp"><summary>Как читать и сохранять отчёт</summary><p>{monthlyExplanation}</p><p>{monthlySourceNote}</p><p>Файл сохраняется на вашем устройстве. Для окончательного итога внесите расходы и проведите полученные товары. Касса, товары и долги переходят в следующий месяц.</p></details>
   </>}
  </section>;
