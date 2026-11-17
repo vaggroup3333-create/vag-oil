@@ -1,6 +1,6 @@
 {
   "name": "vag-oil-selfhosted",
-  "version": "0.67.6",
+  "version": "0.67.7",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -10,7 +10,7 @@
     "dev": "node scripts/run-framework.mjs dev",
     "build": "node scripts/run-framework.mjs build",
     "start:local": "node scripts/start-local.mjs",
-    "start": "node scripts/serve-worker.mjs",
+    "start": "node scripts/serve-managed.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },

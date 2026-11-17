@@ -21,5 +21,17 @@ try {
 const port = process.env.VAG_OIL_PORT || '9088';
 if (!/^\d+$/.test(port) || Number(port) < 1024 || Number(port) > 65535) throw new Error('Invalid VAG_OIL_PORT');
 await import('./sites-env.mjs');
-const { serveWorker } = await import('./serve-worker.mjs');
-await serveWorker({ config: resolve(root, 'dist/server/wrangler.json'), state, port: Number(port) });
+const { serveManaged } = await import('./serve-managed.mjs');
+const megabytes = Number(process.env.VAG_OIL_RECYCLE_MB || 768);
+if (!Number.isFinite(megabytes) || megabytes < 256 || megabytes > 4096) throw new Error('Invalid memory threshold');
+const managed = await serveManaged({
+  config: resolve(root, 'dist/server/wrangler.json'), state, port: Number(port),
+  backendPort: Number(process.env.VAG_OIL_BACKEND_PORT || Number(port) + 1),
+  recycleBytes: megabytes * 1024 * 1024,
+});
+let stopping = false;
+for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, async () => {
+  if (stopping) return; stopping = true;
+  const deadline = setTimeout(() => process.exit(1), 25000); deadline.unref();
+  try { await managed.close(); process.exit(0); } catch { process.exit(1); }
+});

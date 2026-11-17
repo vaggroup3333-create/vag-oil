@@ -29,6 +29,7 @@ export async function serveWorker({ config, state, port = 9088 }) {
     await worker.ready;
     if (await worker.inspectorUrl) throw new Error('Inspector must be disabled');
     console.log(`VAG Oil ready on 127.0.0.1:${port}; inspector disabled`);
+    if (process.send) process.send({ type: 'vag-oil-ready' });
     return worker;
   } catch (error) {
     console.error('VAG Oil failed to start:', error.message);
