@@ -25,6 +25,8 @@
 @media(max-width:650px){.paidColumnsTable input,.paidColumnsTable select{min-height:40px;height:40px}.paidColumnCodeInput button,.paidColumnsRemove{min-height:40px;height:40px;width:36px}.paidColumnsProduct select{min-height:36px;height:36px}}
 
 .paidExpenseBox{display:flex;gap:20px;align-items:flex-start;padding:15px 18px;background:#f4f8fc;border:1px solid #dce7f0;border-radius:10px;margin:16px 0}.paidExpenseBox>label{width:230px;flex-shrink:0;margin:0}.paidExpenseBox>div{min-width:0;flex:1}.paidExpenseBox b{font-size:14px;color:#355c70}.paidExpenseBox p{margin:6px 0 7px;font-size:13px;line-height:1.5}.paidExpenseBox small{color:#537c69;font-size:12px;line-height:1.5}.paidColumnsTable .paidExpenseCell{font-size:10px;color:#33765d;white-space:normal;line-height:1.5}.paidColumnsTable .paidColumnsSum small{white-space:normal;font-size:10px}.paidExpenseDetail{min-width:1050px}.paidExpenseDetail th.paidColumnsProduct{width:32%}@media(max-width:650px){.paidExpenseBox{flex-direction:column;gap:10px;padding:13px}.paidExpenseBox>label{width:100%}}
+.paidFundingField{min-width:0;grid-column:1/-1;margin-bottom:16px}.paidFundingField label{margin-bottom:6px}.paidFundingField small{display:block;color:#5e7582;font-size:12px;line-height:1.5}.paidFundingStatus{display:block;margin-top:5px;color:#2f6257;font-size:12px;font-weight:600}
+@media(min-width:900px){.paidInvoiceMeta.paidInvoiceMetaWithFunding{grid-template-columns:minmax(0,1fr) minmax(0,210px) minmax(0,240px)}.paidFundingField{grid-column:auto}}
 
 /* Keep the dialog within the viewport. Only its body scrolls vertically;
    the table has unrestricted height and retains independent horizontal travel. */

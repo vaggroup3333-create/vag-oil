@@ -13,7 +13,7 @@ export function draftStock(s:State):Record<string,StockSplit>{
   const origin=e.total>0&&Number(e.draftPaid||0)>=e.total?'paid':'credit';
   for(const l of e.lines)if(l.kind!=='service')add(l.id,origin,validQty(l.qty));
  }
- for(const d of s.paidStockDrafts||[])for(const r of d.rows)add(r.productId,'paid',r.packaging?validQty(r.packaging.volume)*validQty(r.packaging.count):validQty(r.qty));
+ for(const d of s.paidStockDrafts||[])for(const r of d.rows)add(r.productId,d.funding==='owner_debt'?'credit':'paid',r.packaging?validQty(r.packaging.volume)*validQty(r.packaging.count):validQty(r.qty));
  return result;
 }
 export function saleStock(s:State,id:string):StockSplit{

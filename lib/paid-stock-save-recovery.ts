@@ -1,10 +1,15 @@
 import {paidDraftForm} from './paid-stock-draft';
 
+function recoveryFields(form:any){
+ const {funding,...fields}=paidDraftForm(form);
+ return form.funding===undefined?fields:{...fields,funding:form.funding};
+}
+
 // Keep the latest rejected legacy form separately from the working ledger.
 // It can be reviewed without asking the user to reload and lose their fields.
 export async function capturePaidStockSaveRecovery(db:any,owner:string,action:any,serverRevision:number){
  if(action.type!=='paid_stock_draft_save'||!Array.isArray(action.rows)||action.rows.length>300)return false;
- const payload=JSON.stringify({type:'paid_stock_draft_save',id:action.id,revision:action.revision,...paidDraftForm(action),...(action.base?{base:paidDraftForm(action.base)}:{})});
+ const payload=JSON.stringify({type:'paid_stock_draft_save',id:action.id,revision:action.revision,...recoveryFields(action),...(action.base?{base:recoveryFields(action.base)}:{})});
  if(payload.length>512000)return false;
  const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(payload));
  const fingerprint=Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,'0')).join('');

@@ -20,5 +20,6 @@ export async function savePaidStockDraft(db:any,key:string,action:any,actor:stri
   const result=await db.prepare('UPDATE ledgers SET data=?,version=version+1 WHERE id=? AND version=?').bind(JSON.stringify(data),key,row.version).run();
   if(result.meta.changes)return {data,version:row.version+1};
  }
+ if(action.type==='paid_stock_draft_post')throw Error('Сейчас сохраняется другая операция. Проверьте накладную и повторите проведение.');
  throw Error('Сейчас сохраняется другая операция. Нажмите «Сохранить и закрыть» ещё раз. Ваши поля сохранены в этом окне.');
 }

@@ -1,9 +1,41 @@
-import type {State,ApplyContext,Entry,OpeningSnapshot,PaidStockRow} from './ledger';
+import type {State,ApplyContext,Entry,OpeningSnapshot,PaidStockFunding,PaidStockRow} from './ledger';
 import {round} from './ledger';
 import {applyOpeningStock} from './opening-stock';
+import {draftStock} from './draft-stock';
 import {paidStockExpenseAmount,paidStockExpensePlan} from './paid-stock-costs';
 import {invoiceDuplicate} from './invoice-duplicates';
 import {paidDraftForm,mergePaidDraftForm,samePaidDraftValue,type PaidDraftForm} from './paid-stock-draft';
+
+const ownerCreditor='Мои товары — долг владельцу';
+const creditorKey=(name:string)=>name.trim().toLocaleLowerCase('ru').replace(/\s*[–—−-]\s*/g,'-').replace(/\s+/g,' ');
+function ownerSupplier(s:State){
+ const matches=s.parties.filter(p=>p.kind==='supplier'&&(p.ownerDebt===true||creditorKey(p.name)===creditorKey(ownerCreditor)));
+ if(matches.length>1)throw Error('Найдено несколько карточек долга владельцу. Уточните контрагента перед проведением');
+ if(matches.length){matches[0].ownerDebt=true;return matches[0];}
+ const party={id:crypto.randomUUID(),name:ownerCreditor,kind:'supplier',phone:'',note:'Долг магазина владельцу за товары, оплаченные личными деньгами',ownerDebt:true as const};
+ s.parties.push(party);return party;
+}
+
+function readFunding(value:unknown,fallback:PaidStockFunding):PaidStockFunding{
+ if(value===undefined)return fallback;
+ if(value==='paid'||value==='owner_debt')return value;
+ throw Error('Выберите способ учёта оплаты');
+}
+
+const isInitialStockInvoice=(e:Entry)=>e.type==='opening_stock'||e.type==='purchase'&&e.openingOwnerDebt===true;
+
+function checkDraftCoverage(s:State,before:ReturnType<typeof draftStock>,funding:PaidStockFunding){
+ const origin=funding==='owner_debt'?'credit':'paid';
+ const after=draftStock(s),pending=new Map<string,number>();
+ for(const advance of s.stockAdvances||[]){
+  if(advance.origin===origin&&advance.remaining>.000001)pending.set(advance.productId,(pending.get(advance.productId)||0)+advance.remaining);
+ }
+ for(const [productId,qty] of pending){
+  if((after[productId]?.[origin]||0)+.000001<Math.min(qty,before[productId]?.[origin]||0)){
+   throw Error('По товарам уже есть продажи до прихода. Сохраните прежний способ учёта оплаты и количество, необходимое для этих продаж');
+  }
+ }
+}
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const text=(v:unknown,max:number)=>String(v??'').slice(0,max);
@@ -28,12 +60,14 @@ export function applyPaidStockDraft(s:State,a:any,context:ApplyContext):State{
  const now=context.now||new Date().toISOString();
  if(!uuid.test(String(a.id||'')))throw Error('Откройте накладную заново');
  if(a.type==='paid_stock_title'){
-  const entry=s.entries.find(e=>e.id===a.id&&e.type==='opening_stock'&&e.status==='posted');
+  const entry=s.entries.find(e=>e.id===a.id&&isInitialStockInvoice(e)&&e.status==='posted');
   if(!entry)throw Error('Накладная не найдена');
   if(a.beforeTitle!==(entry.title||''))throw Error('Название изменено в другом окне. Загрузите сохранённое название');
   entry.title=cleanTitle(a.title);return s;
  }
- const posted=s.entries.find(e=>e.type==='opening_stock'&&e.requestId===a.id);
+ const prior=s.entries.find(e=>e.id===a.id||e.requestId===a.id);
+ const posted=prior&&prior.requestId===a.id&&(isInitialStockInvoice(prior)||prior.type==='purchase'&&prior.openingKind==='addition');
+ if(prior&&!posted)throw Error('Номер черновика уже использован. Откройте список накладных');
  const drafts=s.paidStockDrafts??=[];
  const draft=drafts.find(d=>d.id===a.id);
  if(a.type==='paid_stock_draft_new'){
@@ -43,10 +77,15 @@ export function applyPaidStockDraft(s:State,a:any,context:ApplyContext):State{
  if(a.type==='paid_stock_draft_post'&&posted)return s;
  if(!draft)throw Error('Этот черновик уже проведён или удалён. Обновите список');
  if(a.type!=='paid_stock_draft_save'&&a.revision!==draft.revision)throw Error('Этот черновик изменён в другом окне. Откройте сохранённую версию');
- if(a.type==='paid_stock_draft_delete'){s.paidStockDrafts=drafts.filter(d=>d.id!==draft.id);return s;}
+ if(a.type==='paid_stock_draft_delete'){
+  const before=draft.funding==='owner_debt'?draftStock(s):undefined;
+  s.paidStockDrafts=drafts.filter(d=>d.id!==draft.id);
+  if(before)checkDraftCoverage(s,before,'owner_debt');
+  return s;
+ }
  if(a.type==='paid_stock_draft_save'){
   const current=paidDraftForm(draft);
-  function cleanForm(value:any):PaidDraftForm{
+  function cleanForm(value:any,fallback:PaidStockFunding):PaidDraftForm{
    if(!value||!Array.isArray(value.rows)||value.rows.length>300)throw Error('В одной накладной можно сохранить до 300 товаров');
    const rows=value.rows.map(cleanRow);
    if(new Set(rows.map((r:PaidStockRow)=>r.key)).size!==rows.length)throw Error('Строки накладной повторяются');
@@ -58,20 +97,28 @@ export function applyPaidStockDraft(s:State,a:any,context:ApplyContext):State{
    // Preserve the in-progress title exactly, including a trailing space.
    // Trimming an acknowledgement can conflict with the next word being typed.
    if(title.length>150)throw Error('Название накладной должно быть не длиннее 150 символов');
-   return {rows,title,date:text(value.date,10),note:text(value.note,1000),additionalExpense,expenseAllocation};
+   return {rows,title,date:text(value.date,10),note:text(value.note,1000),additionalExpense,expenseAllocation,funding:readFunding(value.funding,fallback)};
   }
-  let requested=cleanForm(a);
+  const fallback=readFunding(a.base?.funding,current.funding);
+  let requested=cleanForm(a,fallback);
   // A committed save may lose its acknowledgement. Retrying must succeed
   // without changing the invoice again, including requests from older clients.
   if(samePaidDraftValue(requested,current))return s;
   if(a.revision!==draft.revision){
    if(!a.base)throw Error('Этот черновик изменён в другом окне. Ваши поля остались в открытой накладной.');
-   requested=cleanForm(mergePaidDraftForm(cleanForm(a.base),requested,current));
+   requested=cleanForm(mergePaidDraftForm(cleanForm(a.base,current.funding),requested,current),current.funding);
   }
   if(samePaidDraftValue(requested,current))return s;
-  Object.assign(draft,requested);draft.updatedAt=now;draft.revision++;return s;
+  const shouldCheckCoverage=requested.funding!==current.funding||current.funding==='owner_debt';
+  const beforeIncoming=shouldCheckCoverage?draftStock(s):undefined;
+  Object.assign(draft,requested);
+  if(beforeIncoming)checkDraftCoverage(s,beforeIncoming,current.funding);
+  draft.updatedAt=now;draft.revision++;return s;
  }
  if(a.type!=='paid_stock_draft_post')throw Error('Неизвестная операция с оплаченной накладной');
+ const funding=paidDraftForm(draft).funding;
+ if(readFunding(a.funding,'paid')!==funding)throw Error('Способ учёта оплаты изменился. Откройте сохранённую накладную и проверьте его перед проведением');
+ const ownerDebt=funding==='owner_debt';
  if(!draft.rows.length)throw Error('Добавьте товары в накладную');
  const duplicate=invoiceDuplicate(draft.rows,s.products);if(duplicate)throw Error(duplicate.message);
  if(!/^\d{4}-\d{2}-\d{2}$/.test(draft.date)||!Number.isFinite(Date.parse(draft.date+'T12:00:00+05:00'))||new Date(draft.date+'T12:00:00Z').toISOString().slice(0,10)!==draft.date||draft.date>localDay(now))throw Error('Укажите действительную дату, не позднее сегодняшней');
@@ -96,13 +143,14 @@ export function applyPaidStockDraft(s:State,a:any,context:ApplyContext):State{
    if(expensePlan){
     const line=entry.lines[0],allocation=expensePlan.lines[index],p=s.products.find(p=>p.id===line.id)!;
     if(Math.abs(allocation.qty-line.qty)>1e-8||Math.abs(allocation.price-line.price)>1e-8)throw Error('Количество или закупочная цена изменились при распределении расхода');
-    line.expense=allocation.expensePerUnit;line.cost=line.price+line.expense;
+    if(!ownerDebt)line.expense=allocation.expensePerUnit;
+    line.cost=line.price+allocation.expensePerUnit;
     if(!Number.isFinite(line.cost)||line.cost>1e9)throw Error('Себестоимость с расходом слишком велика');
     const snapshot=entry.openingStockSnapshot;
     p.cost=(Math.max(0,snapshot.beforeQty)*snapshot.beforeCost+line.qty*line.price+allocation.expenseAmount)/(Math.max(0,snapshot.beforeQty)+line.qty);
     if(!Number.isFinite(p.cost)||p.cost>1e9)throw Error('Проверьте себестоимость товара с расходом');
     snapshot.afterCost=p.cost;
-    // Opening-stock price retains its historical meaning: full inventory cost.
+    // The amount owed includes the capitalized expense that the owner paid.
     line.price=line.cost;
    }
    if(seen.has(entry.lines[0].id))throw Error('Товар уже добавлен в эту накладную');
@@ -112,6 +160,9 @@ export function applyPaidStockDraft(s:State,a:any,context:ApplyContext):State{
  const total=round(lines.reduce((n,l)=>n+l.qty*l.cost,0));
  if(!Number.isFinite(total)||total>1e9)throw Error('Проверьте общую стоимость накладной');
  if(expensePlan&&Math.abs(total-expensePlan.total)>.001)throw Error('Сумма с расходами не совпала. Проверьте товары');
- s.entries.push({id,number,title:draft.title||'',type:'opening_stock',status:'posted',date:draft.date===localDay(now)?now:draft.date+'T12:00:00+05:00',createdAt:now,party:'Свои оплаченные товары',lines,total,cost:total,paid:0,credit:0,discount:0,service:0,requestId:draft.id,openingKind:'addition',openingStockSnapshots:snapshots,...(expensePlan?{expenses:expenseAmount,expenseAllocation}:{}),note:draft.note});
+ if(ownerDebt&&total<=0)throw Error('Сумма долга владельцу должна быть больше нуля');
+ const supplier=ownerDebt?ownerSupplier(s):null;
+ const expenseFields=expensePlan?(ownerDebt?{openingOwnerDebtExpense:expenseAmount,expenseAllocation}:{expenses:expenseAmount,expenseAllocation}):{};
+ s.entries.push({id,number,title:draft.title||'',type:supplier?'purchase':'opening_stock',status:'posted',date:draft.date===localDay(now)?now:draft.date+'T12:00:00+05:00',createdAt:now,party:supplier?.name||'Свои оплаченные товары',...(supplier?{partyId:supplier.id,initialPaid:0,stockOrigin:'credit' as const,openingOwnerDebt:true}:{}),lines,total,cost:total,paid:0,credit:0,discount:0,service:0,requestId:draft.id,openingKind:'addition',openingStockSnapshots:snapshots,...expenseFields,note:draft.note});
  s.paidStockDrafts=(s.paidStockDrafts||[]).filter(d=>d.id!==draft.id);return s;
 }

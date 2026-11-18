@@ -8,7 +8,7 @@ import {pathToFileURL} from 'node:url';
 
 const dir=await mkdtemp(join(tmpdir(),'vag-admin-access-'));
 try {
- for(const name of ['request-security','password-auth','legacy-ledger','packaging','opening-stock','paid-stock','paid-stock-costs','paid-stock-draft','paid-stock-store','paid-stock-save-recovery','draft-stock','stock-advances','stock-sources','invoice-duplicates','working-ledger','ledger']) {
+ for(const name of ['request-security','password-auth','legacy-ledger','packaging','opening-stock','paid-stock','paid-stock-costs','paid-stock-draft','paid-stock-store','paid-stock-save-recovery','draft-stock','stock-advances','stock-sources','invoice-duplicates','working-ledger','sale-actor','ledger']) {
   const source=await readFile(new URL('../lib/'+name+'.ts',import.meta.url),'utf8');
   const js=stripTypeScriptTypes(source).replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");
   await writeFile(join(dir,name+'.mjs'),js);
@@ -77,6 +77,33 @@ try {
  assert.equal((await store.POST(req('/api/store?mode=live',{version:0,action:paidSave}))).status,401);
  const crossOrigin=req('/api/store?mode=live',{version:0,action:paidSave},ownerCookie);crossOrigin.headers.set('origin','https://other.invalid');
  assert.equal((await store.POST(crossOrigin)).status,403,'new save branch enforces origin check');
+
+ const fundedId=crypto.randomUUID();
+ version=(await read(ownerCookie)).version;
+ assert.equal((await directorPost({type:'paid_stock_draft_new',id:fundedId},version)).status,200);
+ const fundedRow={key:crypto.randomUUID(),qty:'2',cost:'75',product:{name:'Owner-funded test product',article:'OWN-1',barcode:'',qrCode:'',category:'Oil',unit:'шт',price:'120',wholesale:'110'}};
+ const fundedSave={type:'paid_stock_draft_save',id:fundedId,revision:0,title:'Owner test',date:'2026-10-30',note:'',rows:[fundedRow],funding:'owner_debt',additionalExpense:'25',expenseAllocation:'quantity'};
+ assert.equal((await directorPost(fundedSave,0)).status,200);
+ const fundedPost={type:'paid_stock_draft_post',id:fundedId,revision:1,funding:'owner_debt',expenseReview:{amount:25,allocation:'quantity'}};
+ assert.equal((await post(fundedPost)).status,403,'administrator cannot post an owner-funded draft');
+ const fundedBefore=await read(ownerCookie);
+ const firstFunded=await directorPost(fundedPost,0);
+ assert.equal(firstFunded.status,200,JSON.stringify(await firstFunded.clone().json()));
+ const fundedPosted=await firstFunded.json();
+ assert.equal(fundedPosted.version,fundedBefore.version+1);
+ const fundedEntry=fundedPosted.data.entries.find(e=>e.id===fundedId);
+ assert.equal(fundedEntry.total,175);
+ assert.equal(fundedEntry.openingOwnerDebt,true);
+ assert.equal(fundedPosted.data.products.find(p=>p.article==='OWN-1').qty,2);
+ assert.deepEqual(fundedPosted.data.payments,fundedBefore.data.payments);
+ const retryFunded=await directorPost(fundedPost,0);
+ assert.equal(retryFunded.status,200);
+ assert.deepEqual(await retryFunded.json(),fundedPosted,'stale global version can retry the same posting without adding stock again');
+ const maskedFunded=(await read(adminCookie)).data.entries.find(e=>e.id===fundedId);
+ assert.equal(maskedFunded.total,0);
+ assert.equal(maskedFunded.openingOwnerDebtExpense,0);
+ assert.equal(maskedFunded.lines[0].cost,0);
+ assert.equal((await post({type:'unpost_purchase',id:fundedId})).status,403);
  assert.equal((await auth.authenticate(req('/api/auth',{...setup,password:'Replacement-admin',confirmPassword:'Replacement-admin'},ownerCookie),env)).status,200);
  assert.equal((await store.GET(req('/api/store?mode=live',null,adminCookie))).status,401);
  console.log('PASS: administrator login and revocation; director-only credentials; hidden money including packaging; server-side action restrictions; product/draft edits preserve original cash and hidden planned payment.');
