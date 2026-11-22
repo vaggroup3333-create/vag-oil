@@ -27,6 +27,15 @@ function CashReconciliation({report}:{report:MonthlyReportData}){
  const {incoming,outgoing,currentSalesPaid,currentSalesDifference,otherReceipts,difference}=report.cashReconciliation;
  return <section className="monthlyCashReconciliation" aria-labelledby="monthly-cash-reconciliation-title">
   <h3 id="monthly-cash-reconciliation-title">Сверка выручки и кассы</h3>
+  <div className="monthlyExpenseSummary" aria-label="Фактические расходы магазина">
+   <h4>Расходы магазина с учётом отмен</h4>
+   <dl>
+    <div><dt>Начислено расходов</dt><dd>{monthlyMoney(report.expenseSummary.charged)}</dd></div>
+    <div><dt>Отменено расходов</dt><dd>{monthlyMoney(report.expenseSummary.cancelled)}</dd></div>
+    <div className="monthlyExpenseNet"><dt>Фактические расходы</dt><dd>{monthlyMoney(report.expenseSummary.net)}</dd></div>
+   </dl>
+   {report.expenseSummary.net<0&&<p>Отмены расходов прошлых месяцев превысили расходы этого месяца. Отрицательная сумма уменьшает ранее учтённые расходы.</p>}
+  </div>
   <div className="monthlyCashMovements">
    <CashMovement title="Поступило" total={report.cash.incoming} rows={incoming} empty="Поступлений за период нет." kind="incoming"/>
    <CashMovement title="Списано" total={report.cash.outgoing} rows={outgoing} empty="Списаний за период нет." kind="outgoing"/>

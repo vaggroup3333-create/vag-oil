@@ -42,7 +42,7 @@ const incomingCashLabels = new Map([
 const outgoingCashLabels = new Map([
  ['payout', 'Оплаты поставщикам (до учёта отмен)'],
  ['sale_return', 'Возвраты денег клиентам'],
- ['expense', 'Расходы магазина'],
+ ['expense', 'Списания на расходы (до учёта отмен)'],
  ['purchase_expense', 'Расходы по закупкам'],
  ['purchase_return_reversal', 'Корректировки кассы при отмене возвратов поставщикам'],
  ['cash_out', 'Снятия из касс'],
@@ -93,6 +93,14 @@ export function cashFlowTotals(rows:State['payments']){
  return {payments,incoming,outgoing};
 }
 
+// Expense documents determine the result; cash debits and credits remain separate.
+export function monthlyExpenseSummary(s:State,from:string,to:string){
+ const documents=s.entries.filter(e=>posted(e)&&inPeriod(e.date,from,to));
+ const charged=round(documents.filter(e=>e.type==='expense').reduce((sum,e)=>sum+e.total,0));
+ const cancelled=round(documents.filter(e=>e.type==='expense_reversal').reduce((sum,e)=>sum+e.total,0));
+ return {charged,cancelled,net:round(charged-cancelled)};
+}
+
 export function monthlyReport(s:State,month:string,generatedAt=new Date().toISOString()){
  const range=monthRange(month),today=localDay(generatedAt);
  if(range.from>today)throw new Error('Этот месяц ещё не начался');
@@ -100,6 +108,7 @@ export function monthlyReport(s:State,month:string,generatedAt=new Date().toISOS
  const period=totals(s,range.from,to),opening=balanceAt(s,range.previousDay),closing=balanceAt(s,to),returns=monthlyReturns(s,range.from,to);
  const {payments,incoming,outgoing}=cashFlowTotals(s.payments.filter(p=>inPeriod(p.date,range.from,to)));
  const cashReconciliation=reconcileMonthlyCash(s,payments,range.from,to,period.revenue,incoming);
+ const expenseSummary=monthlyExpenseSummary(s,range.from,to);
  const draftCount=s.entries.filter(e=>e.type==='purchase'&&e.status==='draft'&&localDay(e.date)<=to).length+(s.paidStockDrafts||[]).filter(d=>d.rows.length>0&&d.date.slice(0,10)<=to).length;
  const pendingIds=new Set((s.stockAdvances||[]).filter(a=>a.remaining>.000001).map(a=>a.saleId));
  const pendingCount=s.entries.filter(e=>posted(e)&&inPeriod(e.date,range.from,to)&&(e.costPending||pendingIds.has(e.id))).length;
@@ -109,7 +118,7 @@ export function monthlyReport(s:State,month:string,generatedAt=new Date().toISOS
   return {id:p.id,name:p.name,kind:p.kind,opening:st.opening,closing:st.closing};
  }).filter(p=>p.opening!==0||p.closing!==0);
  const warnings=[...(ongoing?['Месяц ещё не закончен. Показаны операции по '+monthlyDate(to)+'.']:[]),...(pendingCount?['Продажи до прихода: '+pendingCount+'. Себестоимость и прибыль предварительные. Проведите соответствующие накладные.']:[]),...(draftCount?['Непроведённые накладные с датой до конца периода: '+draftCount+'. Они не включены в отчёт. Проверьте фактически полученные товары.']:[])];
- return {month,title:monthName(month),shop:s.settings.name,generatedAt,from:range.from,to,monthEnd:range.to,ongoing,period,returns,opening,closing,cash:{opening:opening.cash,incoming,outgoing,closing:closing.cash},cashReconciliation,suppliers,debts,draftCount,pendingCount,warnings};
+ return {month,title:monthName(month),shop:s.settings.name,generatedAt,from:range.from,to,monthEnd:range.to,ongoing,period,returns,opening,closing,cash:{opening:opening.cash,incoming,outgoing,closing:closing.cash},cashReconciliation,expenseSummary,suppliers,debts,draftCount,pendingCount,warnings};
 }
 export type MonthlyReportData=ReturnType<typeof monthlyReport>;
 export function monthlySections(r:MonthlyReportData){return [
@@ -127,6 +136,7 @@ function monthlyExportSections(r:MonthlyReportData){
  return [
   result,
   cash,
+  {title:'Расходы магазина с учётом отмен',heads:['Показатель','Сумма'],rows:[['Начислено расходов',r.expenseSummary.charged],['Отменено расходов',r.expenseSummary.cancelled],['Фактические расходы',r.expenseSummary.net]].map(([label,value])=>[String(label),monthlyMoney(Number(value))])},
   {title:'Из чего сложились поступления',heads:['Операция','Сумма'],rows:reconciliation.incoming.map(row=>[row.label,monthlyMoney(row.amount)])},
   {title:'Из чего сложились списания',heads:['Операция','Сумма'],rows:reconciliation.outgoing.map(row=>[row.label,monthlyMoney(row.amount)])},
   {title:'Сверка выручки и кассы',heads:['Показатель','Сумма'],rows:[
@@ -140,7 +150,7 @@ function monthlyExportSections(r:MonthlyReportData){
   monthlyReturnSection(r),
  ];
 }
-export const monthlyExplanation='Сумма возвратов клиентов уже вычтена из выручки; она включает возврат денег и уменьшение долга клиента. Возвраты относятся к месяцу их оформления, даже если продажа была раньше. Прибыль учитывает продажи в долг. Деньги в кассах показаны отдельно. Оплата поставщикам и возврат долга владельцу уменьшают кассу и долг, но не уменьшают прибыль повторно. При отмене оплаты поставщику исходная оплата остаётся в списаниях, а отмена показывается в поступлениях как корректировка учёта. Отмена расхода уменьшает расходы и восстанавливает кассу на дату отмены; прочий доход не создаётся. Исходное списание и его отмена сохраняются в движении кассы отдельно. Переводы между своими кассами не включены в поступления и списания.';
+export const monthlyExplanation='Сумма возвратов клиентов уже вычтена из выручки; она включает возврат денег и уменьшение долга клиента. Возвраты относятся к месяцу их оформления, даже если продажа была раньше. Прибыль учитывает продажи в долг. Деньги в кассах показаны отдельно. Оплата поставщикам и возврат долга владельцу уменьшают кассу и долг, но не уменьшают прибыль повторно. При отмене оплаты поставщику исходная оплата остаётся в списаниях, а отмена показывается в поступлениях как корректировка учёта. Отмена расхода уменьшает расходы и восстанавливает кассу на дату отмены; прочий доход не создаётся. В итог расходов входят начисленные расходы минус отмены, оформленные в этом месяце. При отмене расходов прошлых месяцев итог текущего месяца может быть отрицательным. Исходное списание и его отмена сохраняются в движении кассы отдельно; итог расходов не прибавляется к списаниям повторно. Переводы между своими кассами не включены в поступления и списания.';
 export const monthlySourceNote='Расчёт по датам документов и оплат, часовой пояс Душанбе (UTC+5). Сохранённый файл — копия на момент формирования; документы месяца не блокируются. Последующие исправления могут изменить отчёт в программе. Продажи по поставщикам не включают услуги; неопределённые источники показаны отдельно.';
 export function monthlyCSV(r:MonthlyReportData){
  const rows:(string|number)[][]=[['Месячный отчёт',r.title],['Магазин',r.shop],['Период',monthlyDate(r.from)+' — '+monthlyDate(r.to)],['Сформирован',r.generatedAt],['Чеков продажи',r.period.count],...r.warnings.map(w=>['Примечание',w])];

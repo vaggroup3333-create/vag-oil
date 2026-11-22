@@ -27,7 +27,7 @@ try{
  check('supplier sales keep units, returns and debt independent',()=>{const row=nov.suppliers.find(g=>g.id==='owner');assert.equal(row.net['шт'],1);assert.equal(row.cost,10);assert.equal(row.revenue,25);assert.equal(nov.debts.find(p=>p.id==='owner').opening,200);assert.equal(nov.debts.find(p=>p.id==='owner').closing,180)});
  check('no data mutation and cash equation',()=>{assert.equal(JSON.stringify(s),before);assert.equal(nov.cash.opening+nov.cash.incoming-nov.cash.outgoing,nov.cash.closing)});
  check('all exports contain same amounts, and hostile names stay inert',()=>{const t=structuredClone(nov);t.shop='<script>alert(1)</script>';t.suppliers[0].name='=HYPERLINK("x")';const html=M.monthlyHTML(t),csv=M.monthlyCSV(t);assert(!html.includes('<script>'));assert(html.includes('&lt;script&gt;'));assert(html.includes('180,00 с'));assert(csv.includes("'=HYPERLINK"));assert(csv.includes('180,00 с'));assert(html.includes('документы месяца не блокируются'))});
- check('empty past month retains balances and has zero activity',()=>{const r=M.monthlyReport(s,'2026-12','2027-01-01T10:00:00Z');assert.equal(r.period.revenue,0);assert.equal(r.period.profit,0);assert.equal(r.cash.opening,r.cash.closing);assert.equal(r.warnings.length,0)});
+ check('empty past month retains balances and has zero activity',()=>{const r=M.monthlyReport(s,'2026-12','2027-01-01T10:00:00Z');assert.equal(r.period.revenue,0);assert.equal(r.period.profit,0);assert.equal(r.cash.opening,r.cash.closing);assert.equal(r.warnings.length,0);assert.deepEqual(r.expenseSummary,{charged:0,cancelled:0,net:0});for(const saved of [M.monthlyHTML(r),M.monthlyCSV(r)])assert(saved.includes('Расходы магазина с учётом отмен'))});
  check('drafts and unresolved sales are visibly preliminary',()=>{const t=structuredClone(s);t.entries.push({...t.entries[0],id:'draft',status:'draft',date:'2026-11-12T10:00:00Z'});t.entries.find(e=>e.type==='sale'&&e.id!==octoberSale).costPending=true;const r=M.monthlyReport(t,'2026-11','2026-12-01T10:00:00Z');assert.equal(r.draftCount,1);assert.equal(r.pendingCount,1);assert.equal(r.period.revenue,nov.period.revenue);assert.equal(r.warnings.length,2)});
  check('returns use their own month and reconcile with net revenue',()=>{assert.equal(oct.returns.total,0);assert.equal(nov.returns.total,25);assert.equal(nov.returns.count,1);assert.equal(nov.returns.rows[0].qty,1);assert.equal(nov.returns.rows[0].name,'Filter');assert.equal(nov.returns.rows[0].date,'2026-11-04');assert.equal(nov.period.grossRevenue-nov.returns.total,nov.period.revenue);assert.equal(nov.returns.rows[0].saleNumber,s.entries.find(e=>e.id===octoberSale).number)});
  check('return lines reconcile discounted totals to the cent and keep historical names',()=>{const t=structuredClone(s),ret=t.entries.find(e=>e.type==='sale_return');t.products=[];t.entries=[{...ret,id:'multi',date:'2026-10-31T19:00:00Z',total:10.01,lines:[{...ret.lines[0],name:'Original name',qty:1,price:3},{...ret.lines[0],id:'second',name:'Second product',unit:'л',qty:1.5,price:2}]}];t.entries.push({...t.entries[0],id:'cancelled',status:'cancelled',total:900},{...t.entries[0],id:'draft',status:'draft',total:800},{...t.entries[0],id:'outside',date:'2026-10-31T18:59:59Z',total:700});const r=M.monthlyReturns(t,'2026-11-01','2026-11-30');assert.equal(r.count,1);assert.equal(r.total,10.01);assert.equal(L.round(r.rows.reduce((n,row)=>n+row.amount,0)),10.01);assert.equal(r.rows[0].name,'Original name');assert.equal(r.rows[1].qty,1.5);assert.equal(r.rows[1].unit,'л')});
@@ -105,7 +105,8 @@ try{
   assert.deepEqual(after.cash,{opening:0,incoming:3300,outgoing:1300,closing:2000});
   assert(after.cashReconciliation.incoming.some(row=>row.label==='Корректировка кассы при отмене расхода'&&row.amount===1300));
   assert(!after.cashReconciliation.incoming.some(row=>row.label==='Прочие доходы'));
-  assert(after.cashReconciliation.outgoing.some(row=>row.label==='Расходы магазина'&&row.amount===1300));
+  assert(after.cashReconciliation.outgoing.some(row=>row.label==='Списания на расходы (до учёта отмен)'&&row.amount===1300));
+  assert.deepEqual(after.expenseSummary,{charged:1300,cancelled:1300,net:0});
   assert.equal(after.cash.opening+after.cash.incoming-after.cash.outgoing,after.cash.closing);
   const historical=M.monthlyReport(t,'2026-11','2026-11-21T10:00:00Z');
   assert.deepEqual(historical.cash,before.cash);assert.equal(historical.period.expenses,before.period.expenses);assert.equal(historical.period.profit,before.period.profit);
@@ -122,13 +123,41 @@ try{
   assert.deepEqual(november.cash,novemberBefore.cash);for(const metric of ['revenue','cost','expenses','income','adjustments','profit','count'])assert.equal(november.period[metric],novemberBefore.period[metric],metric+' remains in its original month');
   assert.deepEqual(november.cash,{opening:2000,incoming:0,outgoing:1300,closing:700});
   assert.equal(november.period.expenses,1300);assert.equal(november.period.profit,-1300);
+  assert.deepEqual(november.expenseSummary,{charged:1300,cancelled:0,net:1300});
   assert.deepEqual(december.cash,{opening:700,incoming:1300,outgoing:0,closing:2000});
   assert.equal(december.period.expenses,-1300);assert.equal(december.period.profit,1300);assert.equal(december.period.income,0);
+  assert.deepEqual(december.expenseSummary,{charged:0,cancelled:1300,net:-1300});
   assert.equal(november.period.expenses+december.period.expenses,L.totals(t).expenses);
   assert.equal(november.period.profit+december.period.profit,L.totals(t).profit);
   assert.deepEqual(december.cashReconciliation.incoming,[{label:'Корректировка кассы при отмене расхода',amount:1300}]);
   assert.deepEqual(december.cashReconciliation.outgoing,[]);
   assert.equal(december.cash.opening+december.cash.incoming-december.cash.outgoing,december.cash.closing);
+  for(const saved of [M.monthlyHTML(december),M.monthlyCSV(december)]){assert(saved.includes('Расходы магазина с учётом отмен'));assert(saved.includes('итог текущего месяца может быть отрицательным'));assert(saved.includes('-1 300,00 с')||saved.includes('-1\u00a0300,00 с'));}
+ });
+ check('actual expenses 4199 minus 1300 remain distinct from gross cash movement in every format',()=>{
+  let t=L.initial(false);
+  const post=(action,now,id)=>{t=L.apply(t,action,{now,id,role:'director',actor:'test'})};
+  post({type:'cash_in',party:'Opening cash',total:1850,account:'cash'},'2026-10-31T10:00:00Z');
+  post({type:'cash_in',party:'Synthetic month receipts',total:16378.25,account:'cash'},'2026-11-01T10:00:00Z');
+  post({type:'expense',party:'Other shop expenses',total:2899,account:'cash'},'2026-11-19T10:00:00Z');
+  post({type:'expense',party:'Mistaken expense',total:1300,account:'cash'},'2026-11-20T10:00:00Z','summary-expense');
+  post({type:'cash_out',party:'Other cash movements',total:8594,account:'cash'},'2026-11-21T10:00:00Z');
+  post({type:'cancel_expense',id:'summary-expense',amount:1300,reason:'Ошибочный расход'},'2026-11-22T10:00:00Z');
+  const snapshot=JSON.stringify(t),report=M.monthlyReport(t,'2026-11','2026-11-22T12:00:00Z');
+  assert.deepEqual(report.expenseSummary,{charged:4199,cancelled:1300,net:2899});
+  assert.equal(report.expenseSummary.net,report.period.expenses);
+  assert.deepEqual(report.cash,{opening:1850,incoming:17678.25,outgoing:12793,closing:6735.25});
+  assert.equal(L.round(report.cashReconciliation.outgoing.reduce((sum,row)=>sum+row.amount,0)),report.cash.outgoing);
+  assert.equal(L.round(report.cashReconciliation.incoming.reduce((sum,row)=>sum+row.amount,0)),report.cash.incoming);
+  assert(report.cashReconciliation.outgoing.some(row=>row.label==='Списания на расходы (до учёта отмен)'&&row.amount===4199));
+  assert(report.cashReconciliation.incoming.some(row=>row.label==='Корректировка кассы при отмене расхода'&&row.amount===1300));
+  const sections=M.monthlySections(report);assert.equal(sections[1].title,'Деньги во всех кассах');assert.equal(sections[3].title,'Продажи по поставщикам');
+  const space=/[\s\u00a0\u202f]/g;
+  for(const saved of [M.monthlyHTML(report),M.monthlyCSV(report)]){
+   assert(saved.includes('Расходы магазина с учётом отмен'));assert(saved.includes('Начислено расходов'));assert(saved.includes('Отменено расходов'));assert(saved.includes('Фактические расходы'));assert(saved.includes('Списания на расходы (до учёта отмен)'));
+   const normalized=saved.replace(space,'');for(const amount of ['4199,00с','1300,00с','2899,00с','17678,25с','12793,00с','6735,25с'])assert(normalized.includes(amount),amount);
+  }
+  assert.equal(JSON.stringify(t),snapshot,'Reporting does not mutate the ledger');
  });
  console.log(count+' monthly report cases passed');
 }finally{await rm(dir,{recursive:true,force:true})}
