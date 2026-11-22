@@ -27,3 +27,25 @@ assert.equal(searchPurchaseInvoice('Старый фильтр',{...draft,lines:[
 assert.equal(searchPurchaseInvoice('F-97133-2E260',{...draft,lines:[]},products).matches,false);
 assert.equal(JSON.stringify({products,draft,posted}),before);
 console.log('PASS: supplier purchase draft/posted search, product identifiers, document metadata, row/document isolation, deleted/type guards and read-only behavior.');
+
+const pageSource=await readFile(new URL('../app/page.tsx',import.meta.url),'utf8');
+const pageLines=pageSource.split(/\r?\n/);
+const scopeLine=pageLines.find(line=>line.startsWith(' const searchAllPurchaseMonths='));
+const periodLine=pageLines.find(line=>line.startsWith(' const inRange='));
+assert(scopeLine&&periodLine,'Use the same period predicate as the purchase page');
+const periodFor=new Function('tab','query','from','to','fromClock','toClock',stripTypeScriptTypes(scopeLine+'\n'+periodLine)+'\nreturn inRange');
+const november={from:'2026-11-01',to:'2026-11-22',fromClock:'08:30',toClock:'19:15'};
+for(const query of ['100001','Фильтр','F-97133-2E260',' 100001 ']){
+ const accepts=periodFor('Покупка',query,november.from,november.to,november.fromClock,november.toClock);
+ for(const date of ['2025-01-01T09:00:00Z','2026-10-30T07:00:00Z','2026-11-22T18:00:00Z'])assert.equal(accepts(date),true,query+': all months and times');
+}
+for(const query of ['', '  ']){
+ const accepts=periodFor('Покупка',query,november.from,november.to,november.fromClock,november.toClock);
+ assert.equal(accepts('2026-10-30T07:00:00Z'),false);
+ assert.equal(accepts('2026-11-01T03:29:00Z'),false);
+ assert.equal(accepts('2026-11-01T03:30:00Z'),true);
+ assert.equal(accepts('2026-11-22T14:15:00Z'),true);
+ assert.equal(accepts('2026-11-22T14:16:00Z'),false);
+}
+assert.equal(periodFor('Продажи / касса','100001',november.from,november.to,'00:00','23:59')('2026-10-30T07:00:00Z'),false,'Searching other sections retains their selected period');
+console.log('PASS: purchase search ignores month/time only for a non-empty query and restores the original period when cleared.');
