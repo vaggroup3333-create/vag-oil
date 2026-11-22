@@ -30,7 +30,7 @@ function hideFinancialData(state:any){
  if(copy.stockAdvances)copy.stockAdvances=copy.stockAdvances.map((x:any)=>({...x,estimate:0,settlements:x.settlements.map((r:any)=>({...r,cost:0}))}));
  delete copy.paidStockDrafts;
  for(const entry of copy.entries||[]){
-  const hideAmounts=entry.openingOwnerDebt||['sale','sale_return','purchase_return','purchase_return_reversal','opening_stock','opening_stock_reversal','expense','income','receipt','payout','transfer','cash_in','cash_out','inventory','writeoff'].includes(entry.type);
+  const hideAmounts=entry.openingOwnerDebt||['sale','sale_return','purchase_return','purchase_return_reversal','opening_stock','opening_stock_reversal','expense','expense_reversal','income','receipt','payout','transfer','cash_in','cash_out','inventory','writeoff'].includes(entry.type);
   if(hideAmounts){for(const key of moneyFields)if(key in entry)entry[key]=0;for(const line of entry.lines||[]){for(const key of ['price','cost','returnCostAmount','discount','expense','retail','wholesale'])if(key in line)line[key]=0;if(line.packaging)line.packaging.unitPrice=0;}}
   else for(const key of ['paid','initialPaid','draftPaid'])if(key in entry)entry[key]=0;
   if(entry.openingStockSnapshot){entry.openingStockSnapshot.beforeCost=0;entry.openingStockSnapshot.afterCost=0;}

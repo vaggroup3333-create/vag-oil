@@ -17,7 +17,7 @@ export type OpeningSnapshot={productId:string,beforeQty:number,beforeCost:number
 export type PaidStockRow={key:string,productId?:string,unit?:string,product?:{name:string,article:string,barcode:string,qrCode:string,category:string,unit:string,price:string,wholesale:string},qty:string,cost:string,packaging?:PackSpec};
 export type PaidStockFunding='paid'|'owner_debt';
 export type PaidStockDraft={funding?:PaidStockFunding,additionalExpense?:string,expenseAllocation?:'value'|'quantity',id:string,title?:string,revision:number,createdAt:string,updatedAt:string,date:string,owner?:''|'self'|'partner',note:string,rows:PaidStockRow[]};
-export type Entry={cashier?:SaleActor,costPending?:boolean,expenseAllocation?:'value'|'quantity',stockOrigin?:StockOrigin,id:string,number:string,title?:string,date:string,createdAt:string,type:string,status:string,party:string,partyId?:string,car?:string,mileage?:string,phone?:string,lines:Line[],total:number,paid:number,credit:number,cost:number,service:number,discount:number,discountMode?:string,discountValue?:number,expenses?:number,expenseAccount?:string,note:string,target?:string,account?:string,paymentMethod?:string,received?:number,change?:number,draftPaid?:number,initialPaid?:number,refund?:number,returnCostRounding?:number,variance?:number,openingKind?:'initial'|'addition',openingOwner?:'self'|'partner',openingOwnerDebt?:boolean,openingOwnerDebtExpense?:number,openingStockSnapshots?:OpeningSnapshot[],openingStockSnapshot?:{productId:string,beforeQty:number,beforeCost:number,afterQty:number,afterCost:number},requestId?:string,cancelledAt?:string,cancelledBy?:string,reversalId?:string,reversalOf?:string,returnPackageChanges?:{productId:string,before:PackLot[],after:PackLot[]}[],deletedAt?:string,deletedStatus?:string,deletionStock?:{id:string,beforeQty:number,beforeCost:number,afterQty:number,afterCost:number}[],deletedPackageLots?:PackLot[],deletedPayments?:State['payments']};
+export type Entry={cashier?:SaleActor,costPending?:boolean,expenseAllocation?:'value'|'quantity',stockOrigin?:StockOrigin,id:string,number:string,title?:string,date:string,createdAt:string,type:string,status:string,party:string,partyId?:string,car?:string,mileage?:string,phone?:string,lines:Line[],total:number,paid:number,credit:number,cost:number,service:number,discount:number,discountMode?:string,discountValue?:number,expenses?:number,expenseAccount?:string,note:string,target?:string,account?:string,paymentMethod?:string,received?:number,change?:number,draftPaid?:number,initialPaid?:number,refund?:number,returnCostRounding?:number,variance?:number,openingKind?:'initial'|'addition',openingOwner?:'self'|'partner',openingOwnerDebt?:boolean,openingOwnerDebtExpense?:number,openingStockSnapshots?:OpeningSnapshot[],openingStockSnapshot?:{productId:string,beforeQty:number,beforeCost:number,afterQty:number,afterCost:number},requestId?:string,cancelledAt?:string,cancelledBy?:string,cancellationReason?:string,reversalId?:string,reversalOf?:string,returnPackageChanges?:{productId:string,before:PackLot[],after:PackLot[]}[],deletedAt?:string,deletedStatus?:string,deletionStock?:{id:string,beforeQty:number,beforeCost:number,afterQty:number,afterCost:number}[],deletedPackageLots?:PackLot[],deletedPayments?:State['payments']};
 export type Payment={id:string,date:string,amount:number,account:string,kind:string,party:string,target?:string,note:string,operationId?:string,cancelledAt?:string,cancelledBy?:string,cancellationReason?:string,reversalId?:string,reversalOf?:string};
 export type State={stockAdvances?:StockAdvance[],cashierIncomingStock?:Record<string,StockSplit>,stockSources?:StockSources,stockSourceNotes?:{id:string,date:string,productId:string,qty:number,paid:number,credit:number,actor:string}[],paidStockDrafts?:PaidStockDraft[],packageLots?:PackLot[],categories?:string[],products:Product[],entries:Entry[],parties:Party[],services:{id:string,name:string,price:number}[],accounts:{id:string,name:string}[],payments:Payment[],shifts:{id:string,opened:string,closed?:string,expected?:number,actual?:number,note?:string}[],settings:{name:string},schema:number;priceHistory?:{id:string,date:string,productId:string,oldRetail:number,retail:number,oldWholesale:number,wholesale:number,source:string}[]};
 export const round=(x:number)=>Math.round((x+Number.EPSILON)*100)/100+0;
@@ -107,6 +107,28 @@ export function productUnitChangeReason(s:State,id:string):string{
 }
 export const debt=(e:Entry)=>Math.max(0,round(e.total-e.credit-e.paid));
 export const balance=(s:State,id?:string)=>round(s.payments.filter(p=>!id||p.account===id).reduce((n,p)=>n+p.amount,0));
+// A dated reversal preserves the original cash and profit history.
+function expensePayments(s:State,e:Entry):Payment[]{return s.payments.filter(p=>p.target===e.id||p.id===e.id&&!p.target);}
+export function expenseCancellationReason(s:State,expenseId:string):string{
+ const matches=s.entries.filter(e=>e.id===expenseId&&e.type==='expense'),e=matches[0];
+ if(!e||!posted(e))return 'Проведённый расход не найден';
+ if(matches.length!==1)return 'В истории есть повторяющиеся документы. Нужна проверка данных';
+ if(e.cancelledAt||e.reversalId||s.entries.some(r=>r.reversalOf===e.id))return 'Этот расход уже отменён';
+ if(!Number.isFinite(e.total)||e.total<=0||e.total>1e9||round(e.total)!==e.total||e.paid!==e.total||e.credit!==0||e.cost!==0||e.discount!==0||e.service!==0||e.lines.length||e.target||e.reversalOf||!Number.isFinite(Date.parse(e.date)))return 'Сумма или состав расхода изменились. Нужна проверка документа';
+ const payments=expensePayments(s,e),p=payments[0];
+ if(payments.length!==1||!p||p.kind!=='expense'||!Number.isFinite(p.amount)||p.amount!==-e.total||p.date!==e.date||!Number.isFinite(Date.parse(p.date)))return 'Списание из кассы не совпадает с расходом. Нужна проверка данных';
+ if(s.payments.filter(x=>x.id===p.id).length!==1)return 'В истории есть повторяющиеся платежи. Нужна проверка данных';
+ if(p.cancelledAt||p.reversalId||s.payments.some(r=>r.reversalOf===p.id))return 'У расхода уже есть отмена списания. Нужна проверка данных';
+ if(!s.accounts.some(a=>a.id===p.account)||e.account&&e.account!==p.account)return 'Касса расхода не найдена или изменилась';
+ if(s.entries.some(r=>r.target===e.id))return 'У расхода есть связанный документ. Нужна проверка данных';
+ return '';
+}
+function completedExpenseCancellation(s:State,e:Entry):boolean{
+ const payments=expensePayments(s,e),p=payments[0],reversals=s.entries.filter(r=>r.reversalOf===e.id),r=reversals[0];
+ if(!posted(e)||!e.cancelledAt||!e.cancelledBy||!e.cancellationReason||!Number.isFinite(Date.parse(e.cancelledAt))||!Number.isFinite(e.total)||e.total<=0||e.total>1e9||round(e.total)!==e.total||e.paid!==e.total||e.credit!==0||e.cost!==0||e.discount!==0||e.service!==0||e.lines.length||e.target||e.reversalOf||!Number.isFinite(Date.parse(e.date))||payments.length!==1||!p||p.date!==e.date||reversals.length!==1||!r)return false;
+ const credits=s.payments.filter(x=>x.reversalOf===p.id),credit=credits[0],reversalDate=Date.parse(p.date)>Date.parse(e.cancelledAt)?p.date:e.cancelledAt;
+ return r.id===e.reversalId&&posted(r)&&r.type==='expense_reversal'&&!r.cancelledAt&&!r.reversalId&&r.target===e.id&&r.total===e.total&&r.paid===e.total&&r.cost===0&&r.credit===0&&r.discount===0&&r.service===0&&r.lines.length===0&&r.account===p.account&&r.createdAt===e.cancelledAt&&r.date===reversalDate&&r.cancellationReason===e.cancellationReason&&p.kind==='expense'&&p.amount===-e.total&&p.cancelledAt===e.cancelledAt&&p.cancelledBy===e.cancelledBy&&p.cancellationReason===e.cancellationReason&&credits.length===1&&!!credit&&!credit.cancelledAt&&!credit.reversalId&&credit.id===p.reversalId&&credit.kind==='expense_reversal'&&credit.target===r.id&&credit.operationId===r.id&&credit.account===p.account&&credit.amount===e.total&&credit.date===reversalDate&&!s.payments.some(x=>x.reversalOf===credit.id)&&s.payments.filter(x=>x.target===r.id).length===1&&s.payments.filter(x=>x.id===p.id||x.id===credit.id).length===2&&s.entries.filter(x=>x.id===e.id||x.id===r.id).length===2&&s.entries.filter(x=>x.target===e.id).length===1&&s.accounts.some(a=>a.id===p.account)&&(!e.account||e.account===p.account);
+}
 // Keep original payments and append a dated reversal so historical cash stays intact.
 export function supplierPaymentGroup(s:State,paymentId:string):Payment[]{
  const payment=s.payments.find(p=>p.id===paymentId&&p.kind==='payout');
@@ -207,6 +229,27 @@ function applyCore(raw:State,a:any,context:ApplyContext={}):State{
  if(a.type==='cash_in'||a.type==='cash_out'||a.type==='income'||a.type==='expense'){
  const total=round(num(a.total,0.01)),party=str(a.party,true);cash(['cash_in','income'].includes(a.type)?total:-total,a.type,party,id);
  const e=doc();Object.assign(e,{party,total,paid:total,account:a.account});s.entries.push(e);return s;
+ }
+ if(a.type==='cancel_expense'){
+  if(context.role!=='director')throw Error('Отменять расход может только директор');
+  const e=s.entries.find(e=>e.id===a.id&&e.type==='expense');if(!e)throw Error('Расход не найден');
+  if(num(a.amount,0.01)!==e.total)throw Error('Сумма расхода изменилась. Обновите страницу');
+  if(!Number.isFinite(Date.parse(now)))throw Error('Некорректная дата отмены расхода');
+  const note=str(a.reason,true),actor=context.actor||'director';
+  if(e.cancelledAt||e.reversalId||s.entries.some(r=>r.reversalOf===e.id)){
+   if(completedExpenseCancellation(s,e))return s;
+   throw Error('История отмены расхода неполная. Нужна проверка данных');
+  }
+  const reason=expenseCancellationReason(s,e.id);if(reason)throw Error(reason);
+  if(s.entries.some(x=>x.id===id)||s.payments.some(x=>x.id===id))throw Error('Номер операции уже используется. Обновите страницу');
+  const payment=expensePayments(s,e)[0],paymentReversalId=crypto.randomUUID();
+  const reversalDate=Date.parse(payment.date)>Date.parse(now)?payment.date:now;
+  e.cancelledAt=now;e.cancelledBy=actor;e.cancellationReason=note;e.reversalId=id;
+  payment.cancelledAt=now;payment.cancelledBy=actor;payment.cancellationReason=note;payment.reversalId=paymentReversalId;
+  const audit='Отмена расхода № '+e.number+' · '+note+' · Директор: '+actor;
+  s.entries.push({...doc(),date:reversalDate,type:'expense_reversal',party:e.party,account:payment.account,target:e.id,reversalOf:e.id,total:e.total,paid:e.total,cancellationReason:note,note:audit});
+  s.payments.push({id:paymentReversalId,date:reversalDate,amount:e.total,account:payment.account,kind:'expense_reversal',party:e.party,target:id,operationId:id,reversalOf:payment.id,note:audit});
+  return s;
  }
  if(a.type==='transfer'){const total=round(num(a.total,0.01));account(a.to);account(a.account);if(a.to===a.account)throw Error('Выберите разные кассы');cash(-total,'transfer','Между своими счетами',id);cash(total,'transfer','Между своими счетами',id,a.to);s.entries.push({...doc(),party:'Между своими счетами',total,paid:total,account:a.account,note:s.accounts.find(x=>x.id===a.account)!.name+' → '+s.accounts.find(x=>x.id===a.to)!.name});return s;}
  if(a.type==='cancel_supplier_payment'){
@@ -324,7 +367,7 @@ function saveInitialPurchase(s:State,p:Product,input:any,now:string):State{
 export function totals(s:State,from='',to=''){
  const within=(date:string)=>{const d=new Date(new Date(date).getTime()+5*3600000).toISOString().slice(0,10);return (!from||d>=from)&&(!to||d<=to)};
  const es=s.entries.filter(e=>posted(e)&&within(e.date));const sum=(type:string,key:keyof Entry='total')=>round(es.filter(e=>e.type===type).reduce((n,e)=>n+Number(e[key]||0),0));
- const revenue=round(sum('sale')-sum('sale_return'));const cost=round(sum('sale','cost')-sum('sale_return','cost'));const expenses=sum('expense'),income=sum('income');const adjustments=round(sum('inventory','variance')+sum('writeoff','variance')+sum('purchase_return')-sum('purchase_return','cost')-sum('purchase_return_reversal')+sum('purchase_return_reversal','cost'));
+ const revenue=round(sum('sale')-sum('sale_return'));const cost=round(sum('sale','cost')-sum('sale_return','cost'));const expenses=round(sum('expense')-sum('expense_reversal')),income=sum('income');const adjustments=round(sum('inventory','variance')+sum('writeoff','variance')+sum('purchase_return')-sum('purchase_return','cost')-sum('purchase_return_reversal')+sum('purchase_return_reversal','cost'));
  const count=es.filter(e=>e.type==='sale').length,grossRevenue=sum('sale');
  return {pendingStockSales:pendingStockCount(s),revenue,cost,expenses,income,adjustments,grossRevenue,averageSale:count?round(grossRevenue/count):0,profit:round(revenue-cost-expenses+income+adjustments),count,customerDebt:round(s.entries.filter(e=>posted(e)&&e.type==='sale').reduce((n,e)=>n+debt(e),0)),supplierDebt:round(s.entries.filter(e=>posted(e)&&e.type==='purchase').reduce((n,e)=>n+debt(e),0)),stock:round(s.products.reduce((n,p)=>n+inventoryValue(p),0)),cash:balance(s)};
 }

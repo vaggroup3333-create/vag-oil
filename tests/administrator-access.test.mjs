@@ -21,7 +21,8 @@ try {
   async batch(statements){this.sql.exec('BEGIN');try{const results=[];for(const s of statements)results.push(await s.run());this.sql.exec('COMMIT');return results}catch(e){this.sql.exec('ROLLBACK');throw e}}
  }
  const db=new Database(),password='Director-test-only',salt='administrator-test-salt';
- const env={DB:db,POS_LOGIN:'owner',POS_PASSWORD_HASH:await auth.passwordHash(password,salt),POS_PASSWORD_SALT:salt,POS_LEDGER_OWNER:'owner-ledger'};
+ const cashierPassword='Cashier-test-only',cashierSalt='cashier-test-salt';
+ const env={DB:db,POS_LOGIN:'owner',POS_PASSWORD_HASH:await auth.passwordHash(password,salt),POS_PASSWORD_SALT:salt,POS_LEDGER_OWNER:'owner-ledger',POS_CASHIER_LOGIN:'cashier',POS_CASHIER_PASSWORD_HASH:await auth.passwordHash(cashierPassword,cashierSalt),POS_CASHIER_PASSWORD_SALT:cashierSalt};
  globalThis.__vagAdminTestEnv=env;
  let route=await readFile(new URL('../app/api/store/route.ts',import.meta.url),'utf8');
  route=route.replace("import { env } from 'cloudflare:workers';",'const env=globalThis.__vagAdminTestEnv;').replace(/from '\.\.\/\.\.\/\.\.\/lib\/([^']+)'/g,"from './$1.mjs'");
@@ -30,6 +31,9 @@ try {
  const req=(path,body,cookie='')=>new Request('https://test.invalid'+path,{method:body?'POST':'GET',headers:{host:'test.invalid','content-type':'application/json',origin:'https://test.invalid','cf-connecting-ip':'admin-test',cookie},...(body?{body:JSON.stringify(body)}:{})});
  const login=await auth.authenticate(req('/api/auth',{action:'login',login:'owner',password}),env);
  assert.equal(login.status,200);const ownerCookie=login.headers.get('set-cookie');
+ const cashierLogin=await auth.authenticate(req('/api/auth',{action:'login',login:'cashier',password:cashierPassword}),env);
+ assert.equal(cashierLogin.status,200);const cashierCookie=cashierLogin.headers.get('set-cookie');
+ assert.equal((await cashierLogin.json()).role,'cashier');
  const setup={action:'set_admin_credentials',login:'manager',password:'Admin-test-only',confirmPassword:'Admin-test-only',currentPassword:password};
  assert.equal((await auth.authenticate(req('/api/auth',setup),env)).status,401);
  assert.equal((await auth.authenticate(req('/api/auth',setup,ownerCookie),env)).status,200);
@@ -56,7 +60,7 @@ try {
  assert.equal(admin.data.shifts[0].actual,undefined);assert.equal(admin.data.entries[1].draftPaid,0);
  assert.equal((await store.GET(req('/api/store?mode=live'))).status,401);
  const post=action=>store.POST(req('/api/store?mode=live',{version:db.sql.prepare('SELECT version FROM ledgers').get().version,action},adminCookie));
- for(const type of ['payment','cash_in','cash_out','transfer','income','expense','shift_close','settings','account','delete_purchase','restore_purchase','return'])assert.equal((await post({type})).status,403,type);
+ for(const type of ['payment','cash_in','cash_out','transfer','income','expense','cancel_expense','shift_close','settings','account','delete_purchase','restore_purchase','return'])assert.equal((await post({type})).status,403,type);
  assert.equal((await post({type:'sale',paid:1,lines:[]})).status,403);
  assert.equal((await post({type:'draft_post',id:'draft',paid:0,lines:[]})).status,403);
  const original=JSON.parse(db.sql.prepare('SELECT data FROM ledgers').get().data);
@@ -104,6 +108,44 @@ try {
  assert.equal(maskedFunded.openingOwnerDebtExpense,0);
  assert.equal(maskedFunded.lines[0].cost,0);
  assert.equal((await post({type:'unpost_purchase',id:fundedId})).status,403);
+
+ // Cancellation uses the same protected API as other director financial operations.
+ const credentials=()=>['pos_credentials','pos_cashier_credentials','pos_admin_credentials','pos_cashiers'].map(table=>({table,rows:db.sql.prepare('SELECT * FROM '+table+' ORDER BY 1').all()}));
+ const credentialsBefore=credentials();
+ let expenseVersion=(await read(ownerCookie)).version;
+ const createdExpense=await directorPost({type:'expense',party:'Erroneous expense',total:1300,account:'city',note:'Test cancellation'},expenseVersion);
+ assert.equal(createdExpense.status,200,JSON.stringify(await createdExpense.clone().json()));
+ const expenseData=await createdExpense.json(),expense=expenseData.data.entries.at(-1);
+ const cancellation={type:'cancel_expense',id:expense.id,amount:1300,reason:'Ошибочный расход'};
+ const beforeCancellation=await read(ownerCookie);
+ assert.equal((await post(cancellation)).status,403,'administrator cannot cancel an actual expense');
+ assert.equal((await store.POST(req('/api/store?mode=live',{version:beforeCancellation.version,action:cancellation},cashierCookie))).status,403,'cashier cannot cancel an expense');
+ assert.equal((await store.GET(req('/api/store?mode=live',null,cashierCookie))).status,403,'cashier cannot read the director store');
+ assert.equal((await store.POST(req('/api/store?mode=live',{version:beforeCancellation.version,action:cancellation}))).status,401);
+ const crossCancel=req('/api/store?mode=live',{version:beforeCancellation.version,action:cancellation},ownerCookie);crossCancel.headers.set('origin','https://other.invalid');
+ assert.equal((await store.POST(crossCancel)).status,403);
+ assert.equal((await directorPost({...cancellation,amount:1299},beforeCancellation.version)).status,400,'stale amount cannot alter cash');
+ assert.deepEqual(await read(ownerCookie),beforeCancellation,'rejected cancellations change neither data nor version');
+ const cancelledExpenseResponse=await directorPost(cancellation,beforeCancellation.version);
+ assert.equal(cancelledExpenseResponse.status,200,JSON.stringify(await cancelledExpenseResponse.clone().json()));
+ const cancelledExpense=await cancelledExpenseResponse.json(),reversal=cancelledExpense.data.entries.find(e=>e.reversalOf===expense.id);
+ assert(reversal);assert.equal(reversal.type,'expense_reversal');assert.equal(reversal.total,1300);assert.equal(reversal.account,'city');
+ assert.equal(cancelledExpense.data.entries.find(e=>e.id===expense.id).cancelledBy,'owner');
+ assert.equal(ledger.balance(cancelledExpense.data,'city')-ledger.balance(beforeCancellation.data,'city'),1300);
+ for(const account of ['cash','alif'])assert.equal(ledger.balance(cancelledExpense.data,account),ledger.balance(beforeCancellation.data,account),'unrelated account '+account);
+ assert.equal(ledger.totals(cancelledExpense.data).expenses,ledger.totals(beforeCancellation.data).expenses-1300);
+ assert.equal(ledger.totals(cancelledExpense.data).profit,ledger.totals(beforeCancellation.data).profit+1300);
+ assert.equal(ledger.totals(cancelledExpense.data).income,ledger.totals(beforeCancellation.data).income,'no fictitious income');
+ assert.deepEqual(cancelledExpense.data.products,beforeCancellation.data.products);
+ assert.equal((await directorPost(cancellation,beforeCancellation.version)).status,409,'stale store version cannot submit twice');
+ const retriedExpense=await directorPost(cancellation,cancelledExpense.version);assert.equal(retriedExpense.status,200);
+ const retriedExpenseData=await retriedExpense.json();assert.deepEqual(retriedExpenseData.data,cancelledExpense.data,'refreshed retry adds no second credit or reversal');
+ const adminAfterCancellation=await read(adminCookie),maskedReversal=adminAfterCancellation.data.entries.find(e=>e.id===reversal.id);
+ for(const key of ['total','paid','credit','cost','service','discount'])assert.equal(maskedReversal[key],0,'administrator reversal amount '+key);
+ for(const payment of adminAfterCancellation.data.payments)assert.equal(payment.amount,0);
+ assert.deepEqual(credentials(),credentialsBefore,'expense cancellation never changes account credentials');
+ console.log('PASS: expense cancellation API director-only action, cashier/administrator/unauthenticated/origin denials, exact amount, correct original account, profit/expense correction, retry idempotency, masked reversal amounts and unchanged credentials.');
+
  assert.equal((await auth.authenticate(req('/api/auth',{...setup,password:'Replacement-admin',confirmPassword:'Replacement-admin'},ownerCookie),env)).status,200);
  assert.equal((await store.GET(req('/api/store?mode=live',null,adminCookie))).status,401);
  console.log('PASS: administrator login and revocation; director-only credentials; hidden money including packaging; server-side action restrictions; product/draft edits preserve original cash and hidden planned payment.');

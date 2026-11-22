@@ -88,5 +88,47 @@ try{
   assert.equal(cash.otherReceipts,.03);
   assert.equal(cash.difference,.03);
  });
+ check('expense cancellation restores its account, net profit and monthly cash without fabricated income',()=>{
+  let t=L.initial(false);
+  const post=(action,now,id)=>{t=L.apply(t,action,{now,id,role:'director',actor:'test'})};
+  post({type:'cash_in',party:'Opening cash',total:2000,account:'city'},'2026-11-01T10:00:00Z');
+  post({type:'expense',party:'Mistaken expense',total:1300,account:'city'},'2026-11-20T10:00:00Z','expense-to-cancel');
+  const before=M.monthlyReport(t,'2026-11','2026-11-21T10:00:00Z');
+  post({type:'cancel_expense',id:'expense-to-cancel',amount:1300,reason:'Ошибочный расход'},'2026-11-22T10:00:00Z');
+  const after=M.monthlyReport(t,'2026-11','2026-11-22T10:00:00Z');
+  assert.equal(after.period.expenses,before.period.expenses-1300);
+  assert.equal(after.period.profit,before.period.profit+1300);
+  assert.equal(after.period.revenue,before.period.revenue);
+  assert.equal(after.period.income,0);
+  assert.equal(after.cash.closing,before.cash.closing+1300);
+  assert.equal(L.balance(t,'city'),2000);assert.equal(L.balance(t,'cash'),0);
+  assert.deepEqual(after.cash,{opening:0,incoming:3300,outgoing:1300,closing:2000});
+  assert(after.cashReconciliation.incoming.some(row=>row.label==='Корректировка кассы при отмене расхода'&&row.amount===1300));
+  assert(!after.cashReconciliation.incoming.some(row=>row.label==='Прочие доходы'));
+  assert(after.cashReconciliation.outgoing.some(row=>row.label==='Расходы магазина'&&row.amount===1300));
+  assert.equal(after.cash.opening+after.cash.incoming-after.cash.outgoing,after.cash.closing);
+  const historical=M.monthlyReport(t,'2026-11','2026-11-21T10:00:00Z');
+  assert.deepEqual(historical.cash,before.cash);assert.equal(historical.period.expenses,before.period.expenses);assert.equal(historical.period.profit,before.period.profit);
+  for(const output of [M.monthlyHTML(after),M.monthlyCSV(after)]){assert(output.includes('Корректировка кассы при отмене расхода'));assert(output.includes('прочий доход не создаётся'));assert(output.includes('1 300,00 с')||output.includes('1\u00a0300,00 с'));}
+ });
+ check('expense cancellation belongs to its own month while historic expense and cash stay intact',()=>{
+  let t=L.initial(false);
+  const post=(action,now,id)=>{t=L.apply(t,action,{now,id,role:'director',actor:'test'})};
+  post({type:'cash_in',party:'Opening cash',total:2000,account:'cash'},'2026-10-01T10:00:00Z');
+  post({type:'expense',party:'Mistaken November expense',total:1300,account:'cash'},'2026-11-20T10:00:00Z','prior-month-expense');
+  const novemberBefore=M.monthlyReport(t,'2026-11','2026-12-10T10:00:00Z');
+  post({type:'cancel_expense',id:'prior-month-expense',amount:1300,reason:'Ошибочный расход'},'2026-12-03T10:00:00Z');
+  const november=M.monthlyReport(t,'2026-11','2026-12-10T10:00:00Z'),december=M.monthlyReport(t,'2026-12','2026-12-10T10:00:00Z');
+  assert.deepEqual(november.cash,novemberBefore.cash);for(const metric of ['revenue','cost','expenses','income','adjustments','profit','count'])assert.equal(november.period[metric],novemberBefore.period[metric],metric+' remains in its original month');
+  assert.deepEqual(november.cash,{opening:2000,incoming:0,outgoing:1300,closing:700});
+  assert.equal(november.period.expenses,1300);assert.equal(november.period.profit,-1300);
+  assert.deepEqual(december.cash,{opening:700,incoming:1300,outgoing:0,closing:2000});
+  assert.equal(december.period.expenses,-1300);assert.equal(december.period.profit,1300);assert.equal(december.period.income,0);
+  assert.equal(november.period.expenses+december.period.expenses,L.totals(t).expenses);
+  assert.equal(november.period.profit+december.period.profit,L.totals(t).profit);
+  assert.deepEqual(december.cashReconciliation.incoming,[{label:'Корректировка кассы при отмене расхода',amount:1300}]);
+  assert.deepEqual(december.cashReconciliation.outgoing,[]);
+  assert.equal(december.cash.opening+december.cash.incoming-december.cash.outgoing,december.cash.closing);
+ });
  console.log(count+' monthly report cases passed');
 }finally{await rm(dir,{recursive:true,force:true})}
